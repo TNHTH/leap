@@ -134,8 +134,8 @@ bool Board::board_init() {
     pid_controller[0].out_limit(-config.kinematics_pid_out_limit(), config.kinematics_pid_out_limit());
     pid_controller[1].out_limit(-config.kinematics_pid_out_limit(), config.kinematics_pid_out_limit());
 
-    kinematics.set_motor_param(0, config.kinematics_reducation_ration(), config.kinematics_pulse_ration(), config.kinematics_wheel_diameter());
-    kinematics.set_motor_param(1, config.kinematics_reducation_ration(), config.kinematics_pulse_ration(), config.kinematics_wheel_diameter());
+    kinematics.set_motor_param(0, config.motor_reducation_ration(0), config.motor_pulse_ration(0), config.motor_wheel_diameter(0));
+    kinematics.set_motor_param(1, config.motor_reducation_ration(1), config.motor_pulse_ration(1), config.motor_wheel_diameter(1));
     kinematics.set_kinematic_param(config.kinematics_wheel_distance());
     refresh_control_config();
 

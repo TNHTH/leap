@@ -28,15 +28,15 @@
 
 #define CONFIG_DEFAULT_MOTOR_OUT_LIMIT_LOW "-100"
 #define CONFIG_DEFAULT_MOTOR_OUT_LIMIT_HIGH "100"
-#define CONFIG_DEFAULT_MOTOR_TARGET_EPSILON "5.0"
+#define CONFIG_DEFAULT_MOTOR_TARGET_EPSILON "1.0"
 #define CONFIG_DEFAULT_MOTOR0_COMPENSATION_GAIN "1.0"
 #define CONFIG_DEFAULT_MOTOR1_COMPENSATION_GAIN "1.0"
-#define CONFIG_DEFAULT_MOTOR0_MIN_PWM "0"
-#define CONFIG_DEFAULT_MOTOR1_MIN_PWM "0"
-#define CONFIG_DEFAULT_MOTOR0_STARTUP_BOOST_PWM "0"
-#define CONFIG_DEFAULT_MOTOR1_STARTUP_BOOST_PWM "0"
-#define CONFIG_DEFAULT_MOTOR0_STARTUP_BOOST_MS "0"
-#define CONFIG_DEFAULT_MOTOR1_STARTUP_BOOST_MS "0"
+#define CONFIG_DEFAULT_MOTOR0_MIN_PWM "12"
+#define CONFIG_DEFAULT_MOTOR1_MIN_PWM "12"
+#define CONFIG_DEFAULT_MOTOR0_STARTUP_BOOST_PWM "18"
+#define CONFIG_DEFAULT_MOTOR1_STARTUP_BOOST_PWM "18"
+#define CONFIG_DEFAULT_MOTOR0_STARTUP_BOOST_MS "120"
+#define CONFIG_DEFAULT_MOTOR1_STARTUP_BOOST_MS "120"
 #define CONFIG_DEFAULT_MOTOR0_PARAM_REDUCATION_RATIO "40.5"
 #define CONFIG_DEFAULT_MOTOR0_PARAM_PULSE_RATION "44"
 #define CONFIG_DEFAULT_MOTOR0_PARAM_WHEEL_DIAMETER "65"
@@ -130,7 +130,7 @@
 
 #define CONFIG_NAME_MOTOR0_PARAM_REDUCATION_RATIO "motor0_reducation"
 #define CONFIG_NAME_MOTOR0_PARAM_PULSE_RATION "motor0_pulse"
-#define CONFIG_NAME_MOTOR0_PARAM_WHEEL_DIAMETER "motor0_wheel_iameter"
+#define CONFIG_NAME_MOTOR0_PARAM_WHEEL_DIAMETER "motor0_wheel_diameter"
 
 #define CONFIG_NAME_MOTOR1_PARAM_REDUCATION_RATIO "motor1_reducation"
 #define CONFIG_NAME_MOTOR1_PARAM_PULSE_RATION "motor1_pulse"
@@ -190,6 +190,9 @@ public:
     float kinematics_pid_ki();
     float kinematics_pid_kd();
     float kinematics_pid_out_limit();
+    float motor_reducation_ration(uint8_t id);
+    uint32_t motor_pulse_ration(uint8_t id);
+    uint32_t motor_wheel_diameter(uint8_t id);
     float motor_target_epsilon();
     float motor_gain(uint8_t id);
     uint32_t motor_min_pwm(uint8_t id);

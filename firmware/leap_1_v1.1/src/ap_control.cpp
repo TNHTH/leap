@@ -186,6 +186,11 @@ void loop_transport() {
     // ROS代理连接状态管理
     switch (state) {
         case WAITING_AGENT:
+            if (config.microros_transport_mode() == CONFIG_TRANSPORT_MODE_WIFI_UDP_CLIENT &&
+                wifi_status != WIFI_STATUS_GOT_IP &&
+                WiFi.status() != WL_CONNECTED) {
+                break;
+            }
             EXECUTE_EVERY_N_MS(5000, state = (RMW_RET_OK == rmw_uros_ping_agent(300, 5)) ? AGENT_AVAILABLE : WAITING_AGENT;);
             digitalWrite(2, !digitalRead(2));
             if (state == WAITING_AGENT && wifi_status == WIFI_STATUS_GOT_IP) {
@@ -196,6 +201,8 @@ void loop_transport() {
             state = (true == create_transport()) ? AGENT_CONNECTED : WAITING_AGENT;
             if (state == AGENT_CONNECTED) {
                 display.updateWIFIInfo("ping ok", WIFI_STATUS_OK);
+            } else {
+                log_debug("ros2", "create_transport failed, keep waiting agent");
             }
             if (state == WAITING_AGENT) {
                 destory_transport();
