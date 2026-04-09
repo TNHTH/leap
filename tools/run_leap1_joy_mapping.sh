@@ -19,10 +19,12 @@ unset _CE_CONDA
 unset _CE_M
 
 WITH_RVIZ="${LEAP1_WITH_RVIZ:-true}"
+WITH_NAV2="${LEAP1_WITH_NAV2:-false}"
 START_AGENT_IF_NEEDED="${LEAP1_START_AGENT_IF_NEEDED:-true}"
 START_LIDAR_BRIDGE_IF_NEEDED="${LEAP1_START_LIDAR_BRIDGE_IF_NEEDED:-true}"
 BRINGUP_WAIT="${LEAP1_BRINGUP_WAIT:-3}"
 LIDAR_WAIT="${LEAP1_LIDAR_WAIT:-5}"
+NAV2_WAIT="${LEAP1_NAV2_WAIT:-4}"
 JOY_DEVICE_ID="${LEAP1_JOY_DEVICE_ID:-0}"
 JOY_DEADZONE="${LEAP1_JOY_DEADZONE:-0.15}"
 JOY_AUTOREPEAT_RATE="${LEAP1_JOY_AUTOREPEAT_RATE:-20.0}"
@@ -76,7 +78,7 @@ cleanup() {
   local exit_code=$?
   trap - EXIT INT TERM
 
-  for pid_var in TELEOP_PID JOY_PID RVIZ_PID SLAM_PID LIDAR_PID BRINGUP_PID LIDAR_BRIDGE_PID AGENT_PID; do
+  for pid_var in TELEOP_PID JOY_PID RVIZ_PID NAV2_PID SLAM_PID LIDAR_PID BRINGUP_PID LIDAR_BRIDGE_PID AGENT_PID; do
     if [[ -n "${!pid_var:-}" ]] && kill -0 "${!pid_var}" 2>/dev/null; then
       kill "${!pid_var}" 2>/dev/null || true
       wait "${!pid_var}" 2>/dev/null || true
@@ -95,6 +97,7 @@ set -u
 
 echo "[Leap1 Joy Mapping] 工作区: ${WS_ROOT}"
 echo "[Leap1 Joy Mapping] RViz: ${WITH_RVIZ}"
+echo "[Leap1 Joy Mapping] Nav2: ${WITH_NAV2}"
 echo "[Leap1 Joy Mapping] 手柄设备: /dev/input/js${JOY_DEVICE_ID}"
 
 if port_in_use "${MICRO_ROS_PORT}"; then
@@ -150,6 +153,13 @@ ros2 launch slam_gmapping slam_gmapping.launch.py use_sim_time:=false &
 SLAM_PID=$!
 sleep 2
 
+if [[ "${WITH_NAV2}" == "true" ]]; then
+  echo "[Leap1 Joy Mapping] 正在启动 Nav2..."
+  ros2 launch xuegecar_navigation2 gmapping_navigation.launch.py use_sim_time:=false &
+  NAV2_PID=$!
+  sleep "${NAV2_WAIT}"
+fi
+
 if [[ "${WITH_RVIZ}" == "true" ]]; then
   echo "[Leap1 Joy Mapping] 正在启动 RViz..."
   ros2 run rviz2 rviz2 -d "${RVIZ_CONFIG}" &
@@ -175,11 +185,17 @@ ros2 run teleop_twist_joy teleop_node --ros-args \
   -p scale_angular.yaw:="${SCALE_ANGULAR_YAW}" &
 TELEOP_PID=$!
 
-echo "[Leap1 Joy Mapping] 已启动手柄控制、激光雷达、gmapping 和 RViz。按 Ctrl+C 退出。"
+echo "[Leap1 Joy Mapping] 已启动手柄控制、激光雷达、gmapping、RViz 和可选 Nav2。按 Ctrl+C 退出。"
 echo "[Leap1 Joy Mapping] 保存地图命令:"
 echo "  source /opt/ros/humble/setup.bash && source ${WS_ROOT}/install/setup.bash && ros2 run nav2_map_server map_saver_cli -f ~/leap1_map"
+if [[ "${WITH_NAV2}" == "true" ]]; then
+  echo "[Leap1 Joy Mapping] 现在可以在 RViz 中使用 Nav2 Goal。"
+fi
 
 pids=("${BRINGUP_PID}" "${SLAM_PID}" "${JOY_PID}" "${TELEOP_PID}")
+if [[ -n "${NAV2_PID:-}" ]]; then
+  pids+=("${NAV2_PID}")
+fi
 if [[ -n "${LIDAR_PID:-}" ]]; then
   pids+=("${LIDAR_PID}")
 fi
