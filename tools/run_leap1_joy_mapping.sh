@@ -20,6 +20,7 @@ unset _CE_M
 
 WITH_RVIZ="${LEAP1_WITH_RVIZ:-true}"
 WITH_NAV2="${LEAP1_WITH_NAV2:-false}"
+WITH_TELEOP="${LEAP1_WITH_TELEOP:-true}"
 START_AGENT_IF_NEEDED="${LEAP1_START_AGENT_IF_NEEDED:-true}"
 START_LIDAR_BRIDGE_IF_NEEDED="${LEAP1_START_LIDAR_BRIDGE_IF_NEEDED:-true}"
 BRINGUP_WAIT="${LEAP1_BRINGUP_WAIT:-3}"
@@ -98,6 +99,7 @@ set -u
 echo "[Leap1 Joy Mapping] 工作区: ${WS_ROOT}"
 echo "[Leap1 Joy Mapping] RViz: ${WITH_RVIZ}"
 echo "[Leap1 Joy Mapping] Nav2: ${WITH_NAV2}"
+echo "[Leap1 Joy Mapping] Teleop: ${WITH_TELEOP}"
 echo "[Leap1 Joy Mapping] 手柄设备: /dev/input/js${JOY_DEVICE_ID}"
 
 if port_in_use "${MICRO_ROS_PORT}"; then
@@ -167,32 +169,40 @@ if [[ "${WITH_RVIZ}" == "true" ]]; then
   sleep 2
 fi
 
-echo "[Leap1 Joy Mapping] 正在启动手柄节点..."
-ros2 run joy joy_node --ros-args \
-  -p device_id:="${JOY_DEVICE_ID}" \
-  -p deadzone:="${JOY_DEADZONE}" \
-  -p autorepeat_rate:="${JOY_AUTOREPEAT_RATE}" &
-JOY_PID=$!
-sleep 1
+if [[ "${WITH_TELEOP}" == "true" ]]; then
+  echo "[Leap1 Joy Mapping] 正在启动手柄节点..."
+  ros2 run joy joy_node --ros-args \
+    -p device_id:="${JOY_DEVICE_ID}" \
+    -p deadzone:="${JOY_DEADZONE}" \
+    -p autorepeat_rate:="${JOY_AUTOREPEAT_RATE}" &
+  JOY_PID=$!
+  sleep 1
 
-ros2 run teleop_twist_joy teleop_node --ros-args \
-  -r cmd_vel:=/cmd_vel \
-  -p require_enable_button:="${REQUIRE_ENABLE_BUTTON}" \
-  -p enable_button:="${ENABLE_BUTTON}" \
-  -p axis_linear.x:="${AXIS_LINEAR_X}" \
-  -p scale_linear.x:="${SCALE_LINEAR_X}" \
-  -p axis_angular.yaw:="${AXIS_ANGULAR_YAW}" \
-  -p scale_angular.yaw:="${SCALE_ANGULAR_YAW}" &
-TELEOP_PID=$!
+  ros2 run teleop_twist_joy teleop_node --ros-args \
+    -r cmd_vel:=/cmd_vel \
+    -p require_enable_button:="${REQUIRE_ENABLE_BUTTON}" \
+    -p enable_button:="${ENABLE_BUTTON}" \
+    -p axis_linear.x:="${AXIS_LINEAR_X}" \
+    -p scale_linear.x:="${SCALE_LINEAR_X}" \
+    -p axis_angular.yaw:="${AXIS_ANGULAR_YAW}" \
+    -p scale_angular.yaw:="${SCALE_ANGULAR_YAW}" &
+  TELEOP_PID=$!
+fi
 
-echo "[Leap1 Joy Mapping] 已启动手柄控制、激光雷达、gmapping、RViz 和可选 Nav2。按 Ctrl+C 退出。"
+echo "[Leap1 Joy Mapping] 已启动激光雷达、gmapping、RViz 和可选 Nav2/Teleop。按 Ctrl+C 退出。"
 echo "[Leap1 Joy Mapping] 保存地图命令:"
 echo "  source /opt/ros/humble/setup.bash && source ${WS_ROOT}/install/setup.bash && ros2 run nav2_map_server map_saver_cli -f ~/leap1_map"
 if [[ "${WITH_NAV2}" == "true" ]]; then
   echo "[Leap1 Joy Mapping] 现在可以在 RViz 中使用 Nav2 Goal。"
 fi
 
-pids=("${BRINGUP_PID}" "${SLAM_PID}" "${JOY_PID}" "${TELEOP_PID}")
+pids=("${BRINGUP_PID}" "${SLAM_PID}")
+if [[ -n "${JOY_PID:-}" ]]; then
+  pids+=("${JOY_PID}")
+fi
+if [[ -n "${TELEOP_PID:-}" ]]; then
+  pids+=("${TELEOP_PID}")
+fi
 if [[ -n "${NAV2_PID:-}" ]]; then
   pids+=("${NAV2_PID}")
 fi
