@@ -24,6 +24,12 @@
   - 日常改动、调试、功能迭代默认都在这里进行
   - 验证稳定后，再合并回 `main`
 
+## 本地使用入口
+
+- 主仓库路径：`/home/gwh/leap/repos/leap`
+- 便捷入口：`/home/gwh/leap/current`
+- 历史本地目录归档：`/home/gwh/leap/_legacy_2026-04-11`
+
 ## 目录说明
 
 ```text
