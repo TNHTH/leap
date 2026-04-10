@@ -2,36 +2,6 @@
 
 namespace
 {
-const char *motor_reducation_key(uint8_t id)
-{
-    return id == 0 ? CONFIG_NAME_MOTOR0_PARAM_REDUCATION_RATIO : CONFIG_NAME_MOTOR1_PARAM_REDUCATION_RATIO;
-}
-
-const char *motor_reducation_default(uint8_t id)
-{
-    return id == 0 ? CONFIG_DEFAULT_MOTOR0_PARAM_REDUCATION_RATIO : CONFIG_DEFAULT_MOTOR1_PARAM_REDUCATION_RATIO;
-}
-
-const char *motor_pulse_key(uint8_t id)
-{
-    return id == 0 ? CONFIG_NAME_MOTOR0_PARAM_PULSE_RATION : CONFIG_NAME_MOTOR1_PARAM_PULSE_RATION;
-}
-
-const char *motor_pulse_default(uint8_t id)
-{
-    return id == 0 ? CONFIG_DEFAULT_MOTOR0_PARAM_PULSE_RATION : CONFIG_DEFAULT_MOTOR1_PARAM_PULSE_RATION;
-}
-
-const char *motor_wheel_key(uint8_t id)
-{
-    return id == 0 ? CONFIG_NAME_MOTOR0_PARAM_WHEEL_DIAMETER : CONFIG_NAME_MOTOR1_PARAM_WHEEL_DIAMETER;
-}
-
-const char *motor_wheel_default(uint8_t id)
-{
-    return id == 0 ? CONFIG_DEFAULT_MOTOR0_PARAM_WHEEL_DIAMETER : CONFIG_DEFAULT_MOTOR1_PARAM_WHEEL_DIAMETER;
-}
-
 const char *motor_gain_key(uint8_t id)
 {
     return id == 0 ? CONFIG_NAME_MOTOR0_COMPENSATION_GAIN : CONFIG_NAME_MOTOR1_COMPENSATION_GAIN;
@@ -186,26 +156,17 @@ String LeapBotConfig::config_str()
     config.concat("\n$odom_pub_period=");
     config.concat(odom_publish_period());
 
-    config.concat("\n$motor0_reducation=");
-    config.concat(motor_reducation_ration(0));
+    // config.concat("\n$reducate_ration=");
+    // config.concat(kinematics_reducation_ration());
 
-    config.concat("\n$motor0_pulse=");
-    config.concat(motor_pulse_ration(0));
+    // config.concat("\n$pulse_ration=");
+    // config.concat(kinematics_pulse_ration());
 
-    config.concat("\n$motor0_wheel_diameter=");
-    config.concat(motor_wheel_diameter(0));
+    // config.concat("\n$wheel_diameter=");
+    // config.concat(kinematics_wheel_diameter());
 
-    config.concat("\n$motor1_reducation=");
-    config.concat(motor_reducation_ration(1));
-
-    config.concat("\n$motor1_pulse=");
-    config.concat(motor_pulse_ration(1));
-
-    config.concat("\n$motor1_wheel_diameter=");
-    config.concat(motor_wheel_diameter(1));
-
-    config.concat("\n$wheel_distance=");
-    config.concat(kinematics_wheel_distance());
+    // config.concat("\n$wheel_distance=");
+    // config.concat(kinematics_wheel_distance());
 
     config.concat("\n$pid_kp=");
     config.concat(kinematics_pid_kp());
@@ -342,15 +303,15 @@ float LeapBotConfig::kinematics_wheel_distance()
 }
 float LeapBotConfig::kinematics_reducation_ration()
 {
-    return motor_reducation_ration(0);
+    return preferences.getString("reducate_ration", CONFIG_DEFAULT_MOTOR0_PARAM_REDUCATION_RATIO).toFloat();
 }
 uint32_t LeapBotConfig::kinematics_pulse_ration()
 {
-    return motor_pulse_ration(0);
+    return preferences.getString("pulse_ration", CONFIG_DEFAULT_MOTOR0_PARAM_PULSE_RATION).toInt();
 }
 uint32_t LeapBotConfig::kinematics_wheel_diameter()
 {
-    return motor_wheel_diameter(0);
+    return preferences.getString("wheel_diameter", CONFIG_DEFAULT_MOTOR0_PARAM_WHEEL_DIAMETER).toInt();
 }
 float LeapBotConfig::kinematics_pid_kp()
 {
@@ -366,38 +327,7 @@ float LeapBotConfig::kinematics_pid_kd()
 }
 float LeapBotConfig::kinematics_pid_out_limit()
 {
-    String configured = preferences.getString(CONFIG_NAME_MOTOR_OUT_LIMIT_HIGH, "");
-    if (configured.length() == 0) {
-        configured = preferences.getString("pid_outlimit", CONFIG_DEFAULT_MOTOR_OUT_LIMIT_HIGH);
-    }
-    return configured.toInt();
-}
-
-float LeapBotConfig::motor_reducation_ration(uint8_t id)
-{
-    String configured = preferences.getString(motor_reducation_key(id), "");
-    if (configured.length() == 0) {
-        configured = preferences.getString("reducate_ration", motor_reducation_default(id));
-    }
-    return configured.toFloat();
-}
-
-uint32_t LeapBotConfig::motor_pulse_ration(uint8_t id)
-{
-    String configured = preferences.getString(motor_pulse_key(id), "");
-    if (configured.length() == 0) {
-        configured = preferences.getString("pulse_ration", motor_pulse_default(id));
-    }
-    return configured.toInt();
-}
-
-uint32_t LeapBotConfig::motor_wheel_diameter(uint8_t id)
-{
-    String configured = preferences.getString(motor_wheel_key(id), "");
-    if (configured.length() == 0) {
-        configured = preferences.getString("wheel_diameter", motor_wheel_default(id));
-    }
-    return configured.toInt();
+    return preferences.getString("pid_outlimit", CONFIG_DEFAULT_MOTOR_OUT_LIMIT_HIGH).toInt();
 }
 
 float LeapBotConfig::motor_target_epsilon()
