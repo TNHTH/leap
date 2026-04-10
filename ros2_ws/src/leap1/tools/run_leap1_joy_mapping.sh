@@ -39,9 +39,11 @@ SCALE_ANGULAR_YAW="${LEAP1_SCALE_ANGULAR_YAW:-0.8}"
 DOCKER_IMAGE='registry.cn-hangzhou.aliyuncs.com/fishros/micro-ros-agent:humble'
 MICRO_ROS_PORT='8888'
 LIDAR_UDP_PORT='8889'
-LIDAR_LINK='/tmp/lidar'
-LEGACY_LIDAR_LINK='/home/gwh/leap/tmp/lidar'
-LIDAR_PARAMS="${REPO_ROOT}/xuegecar_bringup/config/ydlidar_udp_bridge.yaml"
+DEFAULT_LIDAR_LINK='/tmp/lidar'
+LIDAR_LINK="${LEAP1_LIDAR_LINK:-${DEFAULT_LIDAR_LINK}}"
+LIDAR_PARAMS_TEMPLATE="${REPO_ROOT}/xuegecar_bringup/config/ydlidar_udp_bridge.yaml"
+LIDAR_PARAMS_DIR="${TMPDIR:-/tmp}/leap1"
+LIDAR_PARAMS="${LIDAR_PARAMS_DIR}/ydlidar_udp_bridge.generated.yaml"
 RVIZ_CONFIG="${REPO_ROOT}/xuegecar_navigation2/rviz/fishbot_navigation2.rviz"
 
 port_in_use() {
@@ -62,17 +64,12 @@ topic_has_publisher() {
 }
 
 ensure_lidar_link() {
-  if [[ -e "${LIDAR_LINK}" ]]; then
-    return 0
-  fi
+  [[ -e "${LIDAR_LINK}" ]]
+}
 
-  if [[ -e "${LEGACY_LIDAR_LINK}" ]]; then
-    ln -sfn "${LEGACY_LIDAR_LINK}" "${LIDAR_LINK}"
-    echo "[Leap1 Joy Mapping] 已将 ${LIDAR_LINK} 指向现有雷达口 ${LEGACY_LIDAR_LINK}。"
-    return 0
-  fi
-
-  return 1
+generate_lidar_params() {
+  mkdir -p "${LIDAR_PARAMS_DIR}"
+  sed "s#port: ${DEFAULT_LIDAR_LINK}#port: ${LIDAR_LINK}#" "${LIDAR_PARAMS_TEMPLATE}" > "${LIDAR_PARAMS}"
 }
 
 cleanup() {
@@ -101,6 +98,7 @@ echo "[Leap1 Joy Mapping] RViz: ${WITH_RVIZ}"
 echo "[Leap1 Joy Mapping] Nav2: ${WITH_NAV2}"
 echo "[Leap1 Joy Mapping] Teleop: ${WITH_TELEOP}"
 echo "[Leap1 Joy Mapping] 手柄设备: /dev/input/js${JOY_DEVICE_ID}"
+echo "[Leap1 Joy Mapping] 雷达串口链路: ${LIDAR_LINK}"
 
 if port_in_use "${MICRO_ROS_PORT}"; then
   echo "[Leap1 Joy Mapping] 检测到 ${MICRO_ROS_PORT} 端口已有 micro-ROS agent，直接复用。"
@@ -121,9 +119,9 @@ if topic_has_publisher /scan; then
 else
   if port_in_use "${LIDAR_UDP_PORT}"; then
     echo "[Leap1 Joy Mapping] 检测到 ${LIDAR_UDP_PORT} 端口已有雷达 UDP 桥，直接复用。"
-    ensure_lidar_link || true
   elif [[ "${START_LIDAR_BRIDGE_IF_NEEDED}" == "true" ]]; then
     echo "[Leap1 Joy Mapping] 未检测到雷达 UDP 桥，正在启动..."
+    mkdir -p "$(dirname "${LIDAR_LINK}")"
     socat -d -d PTY,link="${LIDAR_LINK}",raw,echo=0,mode=666 UDP4-LISTEN:${LIDAR_UDP_PORT},reuseaddr,fork &
     LIDAR_BRIDGE_PID=$!
     sleep 1
@@ -137,6 +135,8 @@ else
     exit 1
   fi
 fi
+
+generate_lidar_params
 
 echo "[Leap1 Joy Mapping] 正在启动底盘 TF 与机器人描述..."
 ros2 launch xuegecar_bringup xuegecar_bringup.launch.py use_joint_state_publisher:=false use_sim_time:=false &
