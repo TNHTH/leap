@@ -28,3 +28,10 @@ ros2_ws/src/leap1
 - `main` 基于原整车聚合仓库当前稳定基线建立。
 - `work` 在 `main` 基础上导入 `/home/gwh/xuegeros_ws/src/leap1` 的提交历史到 `ros2_ws/src/leap1/`。
 - 旧仓库暂不删除，作为历史备份保留。
+
+## 本地目录收口
+
+- 收口时间：2026-04-11
+- 主开发目录：`/home/gwh/leap/repos/leap`
+- 便捷入口：`/home/gwh/leap/current`
+- 历史本地目录归档到：`/home/gwh/leap/_legacy_2026-04-11`
