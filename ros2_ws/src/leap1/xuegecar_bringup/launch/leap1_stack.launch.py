@@ -20,7 +20,20 @@ from launch_ros.actions import Node
 DOCKER_IMAGE = 'registry.cn-hangzhou.aliyuncs.com/fishros/micro-ros-agent:humble'
 MICRO_ROS_PORT = '8888'
 LIDAR_UDP_PORT = '8889'
-LIDAR_LINK = '/tmp/lidar'
+DEFAULT_LIDAR_LINK = '/tmp/lidar'
+
+
+def _prepare_ydlidar_params(template_path: str, lidar_link: str) -> str:
+    generated_dir = os.path.join('/tmp', 'leap1')
+    generated_path = os.path.join(generated_dir, 'ydlidar_udp_bridge.generated.yaml')
+
+    os.makedirs(generated_dir, exist_ok=True)
+    with open(template_path, 'r', encoding='utf-8') as src_file:
+        content = src_file.read()
+    with open(generated_path, 'w', encoding='utf-8') as dst_file:
+        dst_file.write(content.replace(f'port: {DEFAULT_LIDAR_LINK}', f'port: {lidar_link}', 1))
+
+    return generated_path
 
 
 def generate_launch_description():
@@ -30,7 +43,11 @@ def generate_launch_description():
     xuegecar_bringup_dir = get_package_share_directory('xuegecar_bringup')
     ydlidar_dir = get_package_share_directory('ydlidar_ros2_driver')
     slam_gmapping_dir = get_package_share_directory('slam_gmapping')
-    ydlidar_params = os.path.join(xuegecar_bringup_dir, 'config', 'ydlidar_udp_bridge.yaml')
+    lidar_link = os.environ.get('LEAP1_LIDAR_LINK', DEFAULT_LIDAR_LINK)
+    ydlidar_params = _prepare_ydlidar_params(
+        os.path.join(xuegecar_bringup_dir, 'config', 'ydlidar_udp_bridge.yaml'),
+        lidar_link,
+    )
 
     agent_process = ExecuteProcess(
         cmd=[
@@ -50,7 +67,7 @@ def generate_launch_description():
             'bash',
             '-lc',
             'socat -d -d PTY,link='
-            + LIDAR_LINK
+            + lidar_link
             + ',raw,echo=0,mode=666 UDP4-LISTEN:'
             + LIDAR_UDP_PORT
             + ',reuseaddr,fork',
