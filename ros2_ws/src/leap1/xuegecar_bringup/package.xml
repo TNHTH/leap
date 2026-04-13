@@ -20,6 +20,8 @@
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>xuegecar_description</exec_depend>
   <exec_depend>xuegecar_navigation2</exec_depend>
+  <exec_depend>leap1_a20</exec_depend>
+  <exec_depend>leap1_a20_interfaces</exec_depend>
   <exec_depend>xuegecar_gazebo</exec_depend>
   <exec_depend>ydlidar_ros2_driver</exec_depend>
   <exec_depend>slam_gmapping</exec_depend>

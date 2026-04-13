@@ -1,0 +1,29 @@
+# ROS 2 / colcon
+build/
+build_*/
+install/
+install_*/
+log/
+log_*/
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# IDE
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+
+# Maps / runtime artifacts
+*.pgm
+*.yaml.orig
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

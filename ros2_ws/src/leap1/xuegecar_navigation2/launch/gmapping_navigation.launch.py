@@ -3,6 +3,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterFile
@@ -16,6 +17,8 @@ def generate_launch_description():
     nav2_params_file = LaunchConfiguration("nav2_params_file")
     autostart = LaunchConfiguration("autostart")
     log_level = LaunchConfiguration("log_level")
+    with_keepout_filter = LaunchConfiguration("with_keepout_filter")
+    keepout_mask_yaml = LaunchConfiguration("keepout_mask_yaml")
 
     default_params = os.path.join(pkg_share, "param", "gmapping_nav2.yaml")
     remappings = [("/tf", "tf"), ("/tf_static", "tf_static")]
@@ -39,6 +42,10 @@ def generate_launch_description():
         "waypoint_follower",
         "velocity_smoother",
     ]
+    keepout_lifecycle_nodes = [
+        "keepout_filter_mask_server",
+        "keepout_costmap_filter_info_server",
+    ]
 
     return LaunchDescription(
         [
@@ -47,6 +54,55 @@ def generate_launch_description():
             DeclareLaunchArgument("nav2_params_file", default_value=default_params),
             DeclareLaunchArgument("autostart", default_value="true"),
             DeclareLaunchArgument("log_level", default_value="info"),
+            DeclareLaunchArgument("with_keepout_filter", default_value="false"),
+            DeclareLaunchArgument("keepout_mask_yaml", default_value=""),
+            Node(
+                package="nav2_map_server",
+                executable="map_server",
+                name="keepout_filter_mask_server",
+                output="screen",
+                parameters=[
+                    {
+                        "use_sim_time": use_sim_time,
+                        "yaml_filename": keepout_mask_yaml,
+                        "topic_name": "keepout_filter_mask",
+                        "frame_id": "map",
+                    }
+                ],
+                arguments=["--ros-args", "--log-level", log_level],
+                condition=IfCondition(with_keepout_filter),
+            ),
+            Node(
+                package="nav2_map_server",
+                executable="costmap_filter_info_server",
+                name="keepout_costmap_filter_info_server",
+                output="screen",
+                parameters=[
+                    {
+                        "use_sim_time": use_sim_time,
+                        "type": 0,
+                        "filter_info_topic": "keepout_costmap_filter_info",
+                        "mask_topic": "keepout_filter_mask",
+                        "base": 0.0,
+                        "multiplier": 1.0,
+                    }
+                ],
+                arguments=["--ros-args", "--log-level", log_level],
+                condition=IfCondition(with_keepout_filter),
+            ),
+            Node(
+                package="nav2_lifecycle_manager",
+                executable="lifecycle_manager",
+                name="lifecycle_manager_keepout",
+                output="screen",
+                arguments=["--ros-args", "--log-level", log_level],
+                parameters=[
+                    {"use_sim_time": use_sim_time},
+                    {"autostart": autostart},
+                    {"node_names": keepout_lifecycle_nodes},
+                ],
+                condition=IfCondition(with_keepout_filter),
+            ),
             Node(
                 package="nav2_controller",
                 executable="controller_server",

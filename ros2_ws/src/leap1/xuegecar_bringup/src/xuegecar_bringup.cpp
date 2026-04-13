@@ -1,5 +1,4 @@
 #include <rclcpp/rclcpp.hpp>
-#include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <tf2/utils.h>
 #include <tf2_ros/transform_broadcaster.h>
@@ -7,9 +6,13 @@
 class TopicSubscribe01 : public rclcpp::Node
 {
 public:
-  TopicSubscribe01(std::string name) : Node(name)
+  TopicSubscribe01(std::string name)
+  : Node(name)
   {
-    odom_subscribe_ = this->create_subscription<nav_msgs::msg::Odometry>("odom", rclcpp::SensorDataQoS(), std::bind(&TopicSubscribe01::odom_callback, this, std::placeholders::_1));
+    odom_subscribe_ = this->create_subscription<nav_msgs::msg::Odometry>(
+      "odom",
+      rclcpp::SensorDataQoS(),
+      std::bind(&TopicSubscribe01::odom_callback, this, std::placeholders::_1));
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(this);
   }
 
@@ -31,7 +34,7 @@ private:
     odom_msg_.pose.pose.orientation.y = msg->pose.pose.orientation.y;
     odom_msg_.pose.pose.orientation.z = msg->pose.pose.orientation.z;
     odom_msg_.pose.pose.orientation.w = msg->pose.pose.orientation.w;
-  };
+  }
 
 public:
   void publish_tf()
@@ -53,15 +56,14 @@ public:
   }
 };
 
-int main(int argc, char **argv)
+int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
   /*产生一个的节点*/
   auto node = std::make_shared<TopicSubscribe01>("xuegecar_bringup");
   /* 运行节点，并检测退出信号*/
   rclcpp::WallRate loop_rate(1000.0);
-  while (rclcpp::ok())
-  {
+  while (rclcpp::ok()) {
     rclcpp::spin_some(node);
     node->publish_tf();
     loop_rate.sleep();

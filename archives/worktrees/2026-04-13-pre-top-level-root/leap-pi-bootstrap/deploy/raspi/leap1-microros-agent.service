@@ -1,0 +1,21 @@
+[Unit]
+Description=Leap serial micro-ROS Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__LEAP_USER__
+Group=__LEAP_USER__
+WorkingDirectory=/home/__LEAP_USER__
+Environment=HOME=/home/__LEAP_USER__
+Environment=MICROROS_WS_ROOT=/home/__LEAP_USER__/microros_ws
+Environment=MICROROS_AGENT_DEV=/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
+Environment=MICROROS_AGENT_BAUD=921600
+Environment=MICROROS_AGENT_VERBOSITY=6
+ExecStart=/home/__LEAP_USER__/leap/ros2_ws/src/leap1/tools/run_leap1_microros_agent.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

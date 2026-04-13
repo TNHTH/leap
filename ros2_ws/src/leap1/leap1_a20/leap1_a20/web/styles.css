@@ -1,0 +1,560 @@
+:root {
+  --paper: #f5efe6;
+  --paper-deep: #efe3d4;
+  --ink: #122331;
+  --slate: #304454;
+  --slate-soft: #5f7280;
+  --panel: rgba(255, 251, 244, 0.88);
+  --panel-strong: rgba(16, 33, 47, 0.94);
+  --accent: #ff6b35;
+  --accent-soft: #ffedd8;
+  --danger: #c84a3f;
+  --success: #1f7a53;
+  --warning: #c27915;
+  --border: rgba(16, 33, 47, 0.1);
+  --shadow: 0 18px 50px rgba(16, 33, 47, 0.12);
+  font-family: "IBM Plex Sans Condensed", "Noto Sans SC", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(255, 179, 138, 0.52), transparent 28%),
+    radial-gradient(circle at top right, rgba(255, 233, 206, 0.8), transparent 35%),
+    linear-gradient(135deg, #ede0cf 0%, #f7f3ec 46%, #e8eef2 100%);
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
+
+button,
+select,
+input {
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--ink);
+}
+
+button {
+  cursor: pointer;
+  padding: 0.85rem 1rem;
+  transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(16, 33, 47, 0.08);
+}
+
+button.danger {
+  background: linear-gradient(135deg, #ff8a67, #cf4236);
+  color: white;
+  border: none;
+}
+
+button.ghost {
+  background: rgba(255, 255, 255, 0.42);
+}
+
+button:disabled,
+select:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+  box-shadow: none;
+}
+
+.hero {
+  padding: 2rem 2rem 1.25rem;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.hero-copy {
+  max-width: 68rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.4rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--warning);
+  font-size: 0.78rem;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(2.1rem, 4vw, 3.6rem);
+  line-height: 0.96;
+}
+
+.subtitle {
+  margin: 0.8rem 0 0;
+  max-width: 50rem;
+  color: var(--slate);
+  font-size: 1rem;
+}
+
+.hero-status {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(8.8rem, 1fr));
+  gap: 0.9rem;
+}
+
+.metric {
+  min-width: 9rem;
+  padding: 1rem;
+  border-radius: 20px;
+  background: var(--panel-strong);
+  color: white;
+}
+
+.metric span,
+.status-card span,
+.system-card span,
+.signal-card span,
+.hint,
+.camera-title span,
+.panel-subtitle,
+.summary-box .empty-copy {
+  font-size: 0.82rem;
+}
+
+.metric span {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.metric strong {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 1.2rem;
+}
+
+.dashboard {
+  padding: 0 2rem 2rem;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.panel {
+  padding: 1.2rem;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+}
+
+.status-panel,
+.system-panel,
+.camera-panel,
+.map-panel,
+.log-panel {
+  grid-column: span 12;
+}
+
+.teleop-panel {
+  grid-column: span 5;
+}
+
+.route-panel {
+  grid-column: span 4;
+}
+
+.fire-panel {
+  grid-column: span 3;
+}
+
+.panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: 1.14rem;
+}
+
+.panel-subtitle {
+  margin: 0.35rem 0 0;
+  color: var(--slate-soft);
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.status-card {
+  grid-column: span 2;
+  padding: 1rem;
+  border-radius: 18px;
+  background: var(--panel-strong);
+  color: white;
+  min-height: 5.7rem;
+}
+
+.status-card-wide {
+  grid-column: span 4;
+}
+
+.status-card span {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.status-card strong {
+  display: block;
+  margin-top: 0.45rem;
+  color: white;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.system-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.system-card {
+  min-height: 6.2rem;
+  padding: 1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(16, 33, 47, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.system-card span {
+  color: var(--slate-soft);
+}
+
+.system-card strong {
+  display: block;
+  margin-top: 0.45rem;
+  font-size: 1.02rem;
+}
+
+.system-card small {
+  display: block;
+  margin-top: 0.5rem;
+  color: var(--slate-soft);
+  line-height: 1.35;
+}
+
+.signal-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 0.9rem;
+}
+
+.signal-card {
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  background: rgba(255, 242, 228, 0.92);
+  border: 1px solid rgba(255, 180, 137, 0.55);
+}
+
+.signal-card strong {
+  display: block;
+  margin-top: 0.35rem;
+}
+
+.camera-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.camera-grid article {
+  padding: 0.95rem;
+  border-radius: 22px;
+  background: var(--panel-strong);
+  color: white;
+}
+
+.camera-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.camera-title h3 {
+  margin: 0;
+}
+
+.camera-title p {
+  margin: 0.25rem 0 0;
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 0.86rem;
+}
+
+.camera-title span {
+  color: rgba(255, 255, 255, 0.74);
+}
+
+.camera-feed {
+  position: relative;
+  margin-top: 0.8rem;
+  min-height: 240px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.camera-feed img {
+  display: none;
+  width: 100%;
+  min-height: 240px;
+  object-fit: cover;
+}
+
+.camera-feed img.online {
+  display: block;
+}
+
+.camera-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.2rem;
+  text-align: center;
+  background:
+    radial-gradient(circle at top left, rgba(255, 160, 112, 0.12), transparent 28%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+}
+
+.camera-placeholder strong {
+  display: block;
+  font-size: 1rem;
+}
+
+.camera-placeholder p {
+  margin: 0.45rem 0 0;
+  color: rgba(255, 255, 255, 0.72);
+  line-height: 1.5;
+}
+
+.teleop-layout {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 1rem;
+}
+
+.teleop-pad,
+.teleop-actions,
+.fire-actions {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.teleop-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.teleop-btn {
+  min-height: 3.35rem;
+  padding: 1rem;
+  font-size: 1rem;
+}
+
+.route-grid,
+.map-toolbar,
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.route-panel label,
+.map-toolbar label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 12rem;
+}
+
+.waypoint-picker {
+  display: grid;
+  gap: 0.35rem;
+  margin: 1rem 0;
+}
+
+#routeWaypointSelect {
+  min-height: 10rem;
+  padding: 0.75rem;
+}
+
+.summary-box,
+#logOutput {
+  min-height: 9rem;
+  padding: 1rem;
+  border-radius: 18px;
+  background: var(--panel-strong);
+  color: white;
+  overflow: auto;
+  line-height: 1.5;
+}
+
+.summary-box {
+  margin-top: 1rem;
+}
+
+.map-stage {
+  position: relative;
+  min-height: 340px;
+  margin-top: 1rem;
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background: rgba(16, 33, 47, 0.08);
+}
+
+#mapImage {
+  display: none;
+  width: 100%;
+  height: auto;
+}
+
+#mapImage.ready {
+  display: block;
+}
+
+#mapCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.empty-state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--slate);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.46), rgba(255, 255, 255, 0.16)),
+    radial-gradient(circle at top right, rgba(255, 165, 123, 0.18), transparent 30%);
+}
+
+.empty-state strong {
+  display: block;
+  font-size: 1.1rem;
+  margin-bottom: 0.45rem;
+}
+
+.empty-state p {
+  margin: 0;
+  max-width: 34rem;
+  line-height: 1.6;
+}
+
+.hint {
+  margin-top: 0.8rem;
+  color: var(--slate-soft);
+  line-height: 1.5;
+}
+
+#logOutput {
+  max-height: 18rem;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 1280px) {
+  .system-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .teleop-panel,
+  .route-panel {
+    grid-column: span 6;
+  }
+
+  .fire-panel {
+    grid-column: span 12;
+  }
+
+  .camera-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1080px) {
+  .hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hero-status {
+    width: 100%;
+  }
+
+  .status-card,
+  .status-card-wide,
+  .teleop-panel,
+  .route-panel,
+  .fire-panel {
+    grid-column: span 12;
+  }
+
+  .status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .teleop-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .dashboard,
+  .hero {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .hero-status,
+  .system-grid,
+  .signal-strip,
+  .status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel {
+    padding: 1rem;
+    border-radius: 22px;
+  }
+
+  .teleop-row {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+}

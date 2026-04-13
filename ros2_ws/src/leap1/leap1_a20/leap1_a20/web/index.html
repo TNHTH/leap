@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Leap A20 广播中心</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">LEAP A20 CONTROL DESK</p>
+        <h1>电脑直连调试与消防巡航工作台</h1>
+        <p class="subtitle">把树莓派状态、底盘连接、视频链路、建图、标注和巡航控制收在同一张控制台里。</p>
+      </div>
+      <div class="hero-status">
+        <div class="metric">
+          <span>任务状态</span>
+          <strong id="missionState">BOOT</strong>
+        </div>
+        <div class="metric">
+          <span>故障码</span>
+          <strong id="faultCode">-</strong>
+        </div>
+        <div class="metric">
+          <span>泵状态</span>
+          <strong id="pumpState">OFF</strong>
+        </div>
+      </div>
+    </header>
+
+    <main class="dashboard">
+      <section class="panel status-panel">
+        <div class="panel-head">
+          <div>
+            <h2>实时车况</h2>
+            <p class="panel-subtitle">任务状态、底盘心跳和控制链路的第一视图。</p>
+          </div>
+          <button id="refreshButton" class="ghost">刷新</button>
+        </div>
+        <div class="status-grid">
+          <div class="status-card status-card-wide">
+            <span>任务细节</span>
+            <strong id="missionDetail">等待状态机上线</strong>
+          </div>
+          <div class="status-card">
+            <span>位置</span>
+            <strong id="odomPose">-</strong>
+          </div>
+          <div class="status-card">
+            <span>速度</span>
+            <strong id="odomTwist">-</strong>
+          </div>
+          <div class="status-card">
+            <span>电压</span>
+            <strong id="batteryVoltage">-</strong>
+          </div>
+          <div class="status-card">
+            <span>当前地图</span>
+            <strong id="currentMapId">-</strong>
+          </div>
+          <div class="status-card">
+            <span>当前路线</span>
+            <strong id="currentRouteId">-</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel system-panel">
+        <div class="panel-head">
+          <div>
+            <h2>树莓派与链路状态</h2>
+            <p class="panel-subtitle">这是这张网页最核心的补全项，直接把主机状态和关键信号放到台前。</p>
+          </div>
+        </div>
+        <div class="system-grid">
+          <div class="system-card">
+            <span>面板模式</span>
+            <strong id="panelMode">-</strong>
+            <small id="hostName">-</small>
+          </div>
+          <div class="system-card">
+            <span>IPv4 地址</span>
+            <strong id="hostIp">-</strong>
+            <small>建议优先用 `.local` 或当前 IP 访问</small>
+          </div>
+          <div class="system-card">
+            <span>系统运行时间</span>
+            <strong id="hostUptime">-</strong>
+            <small>树莓派开机时长</small>
+          </div>
+          <div class="system-card">
+            <span>CPU 负载</span>
+            <strong id="cpuLoad">-</strong>
+            <small>1 / 5 / 15 分钟平均负载</small>
+          </div>
+          <div class="system-card">
+            <span>内存占用</span>
+            <strong id="memoryUsage">-</strong>
+            <small>总量与使用率</small>
+          </div>
+          <div class="system-card">
+            <span>磁盘占用</span>
+            <strong id="diskUsage">-</strong>
+            <small>运行目录所在磁盘</small>
+          </div>
+        </div>
+        <div class="signal-strip">
+          <div class="signal-card">
+            <span>底盘/里程计</span>
+            <strong id="odomSignal">-</strong>
+          </div>
+          <div class="signal-card">
+            <span>车载相机链路</span>
+            <strong id="vehicleSignal">-</strong>
+          </div>
+          <div class="signal-card">
+            <span>地面相机链路</span>
+            <strong id="groundSignal">-</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel camera-panel">
+        <div class="panel-head">
+          <div>
+            <h2>视频与调试视角</h2>
+            <p class="panel-subtitle">相机在线时自动切到流媒体，离线时明确告诉你是未启用还是设备掉线。</p>
+          </div>
+        </div>
+        <div class="camera-grid">
+          <article>
+            <div class="camera-title">
+              <div>
+                <h3>车载 C100</h3>
+                <p>车载机位画面</p>
+              </div>
+              <span id="frontCameraState">offline</span>
+            </div>
+            <div class="camera-feed">
+              <img id="frontCameraImage" alt="车载相机画面" />
+              <div id="frontCameraPlaceholder" class="camera-placeholder">
+                <strong>车载相机未就绪</strong>
+                <p id="frontCameraHint">等待状态刷新</p>
+              </div>
+            </div>
+          </article>
+          <article>
+            <div class="camera-title">
+              <div>
+                <h3>固定摄像头</h3>
+                <p>固定摄像头画面</p>
+              </div>
+              <span id="groundCameraState">offline</span>
+            </div>
+            <div class="camera-feed">
+              <img id="groundCameraImage" alt="固定摄像头画面" />
+              <div id="groundCameraPlaceholder" class="camera-placeholder">
+                <strong>固定摄像头未就绪</strong>
+                <p id="groundCameraHint">等待状态刷新</p>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel teleop-panel">
+        <div class="panel-head">
+          <div>
+            <h2>建图 Teleop 与泵控</h2>
+            <p class="panel-subtitle">按住方向键持续发送速度，松开或移出立即停。</p>
+          </div>
+        </div>
+        <div class="teleop-layout">
+          <div class="teleop-pad">
+            <button data-vx="0.22" data-vz="0.0" class="teleop-btn">前进</button>
+            <div class="teleop-row">
+              <button data-vx="0.0" data-vz="0.8" class="teleop-btn">左转</button>
+              <button id="stopButton" class="teleop-btn danger">急停</button>
+              <button data-vx="0.0" data-vz="-0.8" class="teleop-btn">右转</button>
+            </div>
+            <button data-vx="-0.18" data-vz="0.0" class="teleop-btn">后退</button>
+          </div>
+          <div class="teleop-actions">
+            <button id="pumpOnButton">开启抽水</button>
+            <button id="pumpOffButton" class="ghost">停止抽水</button>
+            <button id="startMappingButton">进入建图态</button>
+            <button id="saveMapButton">保存当前地图</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel route-panel">
+        <div class="panel-head">
+          <div>
+            <h2>路线编排</h2>
+            <p class="panel-subtitle">当前地图的 waypoint 选取、路线保存与巡航下发。</p>
+          </div>
+        </div>
+        <div class="route-grid">
+          <label>
+            路线名称
+            <input id="routeNameInput" type="text" placeholder="如：night_shift_route" />
+          </label>
+          <label>
+            执行模式
+            <select id="routeModeSelect">
+              <option value="single_run">single_run</option>
+              <option value="loop">loop</option>
+            </select>
+          </label>
+        </div>
+        <label class="waypoint-picker">
+          按当前列表顺序选择 waypoint
+          <select id="routeWaypointSelect" multiple></select>
+        </label>
+        <div class="inline-actions">
+          <button id="saveRouteButton">保存路线</button>
+          <button id="startSinglePatrolButton">启动单次巡航</button>
+          <button id="startLoopPatrolButton" class="ghost">启动循环巡航</button>
+          <button id="stopPatrolButton" class="danger">停止巡航</button>
+        </div>
+        <div id="routeSummary" class="summary-box"></div>
+      </section>
+
+      <section class="panel fire-panel">
+        <div class="panel-head">
+          <div>
+            <h2>火情占位与处置链</h2>
+            <p class="panel-subtitle">保留后续视觉检测替换位，当前可手动触发演练。</p>
+          </div>
+        </div>
+        <div class="fire-actions">
+          <button id="triggerFireButton" class="danger">触发火情</button>
+          <button id="clearFireButton" class="ghost">清除火情</button>
+          <button id="enterAnnotationButton" class="ghost">进入标注态</button>
+          <button id="missionReadyButton" class="ghost">标注完成，任务就绪</button>
+        </div>
+        <p class="hint">手动火情会驱动状态机进入“先停后喷再冷却”，后续替换真实视觉模型时不改前端协议。</p>
+      </section>
+
+      <section class="panel map-panel">
+        <div class="panel-head">
+          <div>
+            <h2>地图编辑与严格禁入</h2>
+            <p class="panel-subtitle">没有地图时给出引导，有地图后提供标注、keepout 和航点编辑。</p>
+          </div>
+          <div class="inline-actions">
+            <select id="mapSelect"></select>
+            <button id="loadMapButton" class="ghost">载入地图</button>
+          </div>
+        </div>
+        <div class="map-toolbar">
+          <label>
+            标注模式
+            <select id="toolSelect">
+              <option value="keepout_zone">严格禁入区</option>
+              <option value="patrol_zone">巡检区域</option>
+              <option value="static_obstacle">静态障碍</option>
+              <option value="fire_risk_zone">火险区</option>
+              <option value="equipment">设备点</option>
+              <option value="water_source">水源点</option>
+              <option value="waypoint">航点</option>
+            </select>
+          </label>
+          <button id="saveAnnotationsButton">保存标注并生成 keepout</button>
+        </div>
+        <div id="mapStage" class="map-stage">
+          <img id="mapImage" alt="地图底图" />
+          <canvas id="mapCanvas"></canvas>
+          <div id="mapEmptyState" class="empty-state">
+            <strong>当前还没有可用地图</strong>
+            <p>先进入建图态，保存地图，再回到这里做航点和禁入区编辑。</p>
+          </div>
+        </div>
+        <p class="hint">区域类标注使用拖拽矩形，航点使用单击落点。严格禁入区会直接生成 keepout mask，巡航必须绕开。</p>
+      </section>
+
+      <section class="panel log-panel">
+        <div class="panel-head">
+          <div>
+            <h2>调试日志与验收记录</h2>
+            <p class="panel-subtitle">这里汇总后端状态切换和网页操作反馈，方便远程排查。</p>
+          </div>
+        </div>
+        <pre id="logOutput"></pre>
+      </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

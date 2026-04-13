@@ -1,10 +1,15 @@
+# 仓库工具与临时目录
+.codex/
+.tmp/
+
 # ROS 2 / colcon
+/ros2_ws/build/
+/ros2_ws/install/
+/ros2_ws/log/
 build/
 build_*/
 install/
 install_*/
-log/
-log_*/
 
 # PlatformIO
 .pio/
@@ -19,7 +24,7 @@ log_*/
 __pycache__/
 *.pyc
 
-# Maps / runtime artifacts
+# Runtime / generated artifacts
 *.pgm
 *.yaml.orig
 *.log

@@ -45,6 +45,9 @@
 #define CONFIG_DEFAULT_MOTOR1_PARAM_WHEEL_DIAMETER "65"
 //-------------------------------------默认轮距----------------------------------------------
 #define CONFIG_DEFAULT_KINEMATIC_WHEEL_DISTANCE "172.75"
+#define CONFIG_DEFAULT_PUMP_GPIO "27"
+#define CONFIG_DEFAULT_PUMP_ACTIVE_LEVEL "1"
+#define CONFIG_DEFAULT_PUMP_TIMEOUT_MS "1500"
 
 //------------------------------------IO相关配置----------------------------------------------
 // IMU
@@ -136,6 +139,9 @@
 #define CONFIG_NAME_MOTOR1_PARAM_PULSE_RATION "motor1_pulse"
 #define CONFIG_NAME_MOTOR1_PARAM_WHEEL_DIAMETER "motor1_wheel_diameter"
 #define CONFIG_NAME_KINEMATIC_WHEEL_DISTANCE "wheel_dist"
+#define CONFIG_NAME_PUMP_GPIO "pump_gpio"
+#define CONFIG_NAME_PUMP_ACTIVE_LEVEL "pump_level"
+#define CONFIG_NAME_PUMP_TIMEOUT_MS "pump_timeout_ms"
 
 #define VERSION_CODE "v1.0a"
 #define FIRST_START_TIP "\n"
@@ -195,6 +201,9 @@ public:
     uint32_t motor_min_pwm(uint8_t id);
     uint32_t motor_startup_boost_pwm(uint8_t id);
     uint32_t motor_startup_boost_ms(uint8_t id);
+    uint32_t pump_gpio();
+    bool pump_active_level();
+    uint32_t pump_timeout_ms();
 
     int8_t loop_config_uart(int c, char result[][32]);
     int8_t split_str(const char *line, char result[][32]);

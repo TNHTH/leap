@@ -1,0 +1,4 @@
+2026.1.6
+资料包【2.相机标定、内参获取与畸变矫正\USB摄像头(ubuntu)代码工程\cam_usb_correct_python】
+资料包【2.相机标定、内参获取与畸变矫正\USB摄像头(ubuntu)代码工程\cam_usb_correct】
+更新内容：解决Ubuntu环境标定例程未保存标定结果的问题

@@ -1,20 +1,27 @@
 #include "ap_ros_transport.h"
+#include "ap_safety.h"
+
+#include <std_msgs/msg/bool.h>
 
 // 所有全局变量在此初始化（仅一次）
 // MicroROS消息初始化
 geometry_msgs__msg__Twist twist_msg = {};
 nav_msgs__msg__Odometry odom_msg = {};
 sensor_msgs__msg__Imu imu_msg = {};
-sensor_msgs__msg__BatteryState battery_msg= {};
+sensor_msgs__msg__BatteryState battery_msg = {};
+std_msgs__msg__Bool pump_cmd_msg = {};
+std_msgs__msg__Bool pump_state_msg = {};
 micro_ros_utilities_memory_conf_t conf = {0};
 
 // MicroROS订阅发布者服务初始化
 rcl_publisher_t odom_publisher = {};
 rcl_publisher_t imu_publisher = {};
+rcl_publisher_t battery_publisher = {};
+rcl_publisher_t pump_state_publisher = {};
 rcl_subscription_t twist_subscriber = {};
+rcl_subscription_t pump_cmd_subscriber = {};
 rcl_service_t config_service = {};
 rcl_wait_set_t wait_set = {};
-rcl_publisher_t battery_publisher = {};
 
 // MicroROS执行器&节点初始化
 // rclc_executor_t executor = {};
@@ -24,6 +31,17 @@ rcl_allocator_t allocator = {};
 rcl_node_t node = {};
 rcl_timer_t timer = {};
 
+namespace
+{
+bool ensure_rcl_ok(rcl_ret_t rc, const char *stage)
+{
+    if (rc != RCL_RET_OK) {
+        log_debug("ros2", "create_transport failed at %s: %d", stage, (int)rc);
+        return false;
+    }
+    return true;
+}
+} // namespace
 
 void callback_sensor_publisher_timer_(rcl_timer_t *timer, int64_t last_call_time) {
     RCLC_UNUSED(last_call_time);
@@ -77,6 +95,9 @@ void callback_sensor_publisher_timer_(rcl_timer_t *timer, int64_t last_call_time
         battery_msg.present = true;
 
         RCSOFTCHECK(rcl_publish(&battery_publisher, &battery_msg, NULL));
+
+        pump_state_msg.data = safety_pump_enabled();
+        RCSOFTCHECK(rcl_publish(&pump_state_publisher, &pump_state_msg, NULL));
     }
 }
 
@@ -87,6 +108,12 @@ void callback_twist_subscription_(const void *msgin) {
     kinematics.kinematic_inverse(msg->linear.x * 1000, msg->angular.z, target_motor_speed1, target_motor_speed2);
     pid_controller[0].update_target(target_motor_speed1);
     pid_controller[1].update_target(target_motor_speed2);
+    safety_on_cmd_vel_received();
+}
+
+void callback_pump_subscription_(const void *msgin) {
+    const std_msgs__msg__Bool *msg = (const std_msgs__msg__Bool *)msgin;
+    safety_set_pump_command(msg->data);
 }
 
 bool setup_transport() {
@@ -101,14 +128,14 @@ bool setup_transport() {
         SerialBT.begin(config.board_name());
         log_set_target(SerialBT);
         if (config.microros_serial_id() == 2) {
-            microros_setup_transport_serial_(Serial2);
+            setup_success = microros_setup_transport_serial_(Serial2);
             display.updateTransMode("serial2");
         } else {
-            microros_setup_transport_serial_(Serial);
+            setup_success = microros_setup_transport_serial_(Serial);
             display.updateTransMode("serial");
         }
     }
-    return true;
+    return setup_success;
 }
 
 bool create_transport() {
@@ -127,42 +154,73 @@ bool create_transport() {
 
     allocator = rcl_get_default_allocator();
     init_options = rcl_get_zero_initialized_init_options();
-    RCSOFTCHECK(rcl_init_options_init(&init_options, allocator));
-    RCSOFTCHECK(rcl_init_options_set_domain_id(&init_options, config.ros2_domain_id()));
-    RCSOFTCHECK(rclc_support_init_with_options(&support, 0, NULL, &init_options, &allocator));
-    RCSOFTCHECK(rclc_node_init_default(&node, nodename.c_str(), ros2namespace.c_str(), &support));
+    if (!ensure_rcl_ok(rcl_init_options_init(&init_options, allocator), "rcl_init_options_init")) return false;
+    if (!ensure_rcl_ok(rcl_init_options_set_domain_id(&init_options, config.ros2_domain_id()), "rcl_init_options_set_domain_id")) return false;
+    if (!ensure_rcl_ok(rclc_support_init_with_options(&support, 0, NULL, &init_options, &allocator), "rclc_support_init_with_options")) return false;
+    if (!ensure_rcl_ok(rclc_node_init_default(&node, nodename.c_str(), ros2namespace.c_str(), &support), "rclc_node_init_default")) return false;
 
-    // 初始化发布者
-    // 初始化发布者
-    RCSOFTCHECK(rclc_publisher_init_default(
-        &odom_publisher, 
-        &node, 
-        ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry), 
-        odom_topic.c_str()));
+    if (!ensure_rcl_ok(
+            rclc_publisher_init_default(
+                &odom_publisher,
+                &node,
+                ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
+                odom_topic.c_str()),
+            "odom_publisher")) return false;
 
-    RCSOFTCHECK(rclc_publisher_init_default(
-        &imu_publisher, 
-        &node, 
-        ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu), 
-        "imu"));
+    if (!ensure_rcl_ok(
+            rclc_publisher_init_default(
+                &imu_publisher,
+                &node,
+                ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
+                "imu"),
+            "imu_publisher")) return false;
 
-    RCSOFTCHECK(rclc_publisher_init_default(
-        &battery_publisher, 
-        &node, 
-        ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, BatteryState), 
-        "battery_state"));
+    if (!ensure_rcl_ok(
+            rclc_publisher_init_default(
+                &battery_publisher,
+                &node,
+                ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, BatteryState),
+                "battery_state"),
+            "battery_publisher")) return false;
 
-    // 初始化订阅者
-    RCSOFTCHECK(rclc_subscription_init_best_effort(&twist_subscriber, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist), twist_topic.c_str()));
+    if (!ensure_rcl_ok(
+            rclc_publisher_init_default(
+                &pump_state_publisher,
+                &node,
+                ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
+                "/pump_state"),
+            "pump_state_publisher")) return false;
 
-    // 初始化定时器
-    RCSOFTCHECK(rclc_timer_init_default(&timer, &support, RCL_MS_TO_NS(timer_timeout), callback_sensor_publisher_timer_));
+    if (!ensure_rcl_ok(
+            rclc_subscription_init_best_effort(
+                &twist_subscriber,
+                &node,
+                ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
+                twist_topic.c_str()),
+            "twist_subscriber")) return false;
 
-    // 初始化执行器
-    RCSOFTCHECK(rclc_executor_init(&executor, &support.context, 3, &allocator));
-    RCSOFTCHECK(rclc_executor_add_subscription(&executor, &twist_subscriber, &twist_msg, &callback_twist_subscription_, ON_NEW_DATA));
-    RCSOFTCHECK(rclc_executor_add_timer(&executor, &timer));
+    if (!ensure_rcl_ok(
+            rclc_subscription_init_default(
+                &pump_cmd_subscriber,
+                &node,
+                ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
+                "/pump_cmd"),
+            "pump_cmd_subscriber")) return false;
 
+    if (!ensure_rcl_ok(
+            rclc_timer_init_default(&timer, &support, RCL_MS_TO_NS(timer_timeout), callback_sensor_publisher_timer_),
+            "sensor_timer")) return false;
+
+    if (!ensure_rcl_ok(rclc_executor_init(&executor, &support.context, 3, &allocator), "executor_init")) return false;
+    if (!ensure_rcl_ok(
+            rclc_executor_add_subscription(&executor, &twist_subscriber, &twist_msg, &callback_twist_subscription_, ON_NEW_DATA),
+            "executor_add_twist")) return false;
+    if (!ensure_rcl_ok(
+            rclc_executor_add_subscription(&executor, &pump_cmd_subscriber, &pump_cmd_msg, &callback_pump_subscription_, ON_NEW_DATA),
+            "executor_add_pump")) return false;
+    if (!ensure_rcl_ok(rclc_executor_add_timer(&executor, &timer), "executor_add_timer")) return false;
+
+    log_debug("ros2", "create_transport success mode=%s node=%s", config.microros_transport_mode().c_str(), nodename.c_str());
     return true;
 }
 
@@ -170,13 +228,18 @@ bool destory_transport() {
     rmw_context_t *rmw_context = rcl_context_get_rmw_context(&support.context);
     (void)rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0);
     RCSOFTCHECK(rcl_publisher_fini(&odom_publisher, &node));
+    RCSOFTCHECK(rcl_publisher_fini(&imu_publisher, &node));
     RCSOFTCHECK(rcl_publisher_fini(&battery_publisher, &node));
+    RCSOFTCHECK(rcl_publisher_fini(&pump_state_publisher, &node));
     RCSOFTCHECK(rcl_subscription_fini(&twist_subscriber, &node));
+    RCSOFTCHECK(rcl_subscription_fini(&pump_cmd_subscriber, &node));
     RCSOFTCHECK(rcl_service_fini(&config_service, &node));
     RCSOFTCHECK(rcl_timer_fini(&timer));
     RCSOFTCHECK(rclc_executor_fini(&executor));
     RCSOFTCHECK(rcl_node_fini(&node));
     rclc_support_fini(&support);
+    safety_force_motion_stop();
+    safety_force_pump_off();
     return true;
 }
 

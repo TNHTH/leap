@@ -1,0 +1,32 @@
+broadcast_center_server:
+  ros__parameters:
+    bind_host: 0.0.0.0
+    bind_port: 8090
+    status_hz: 10.0
+    teleop_hz: 20.0
+    teleop_timeout_sec: 0.8
+    runtime_root: ""
+camera_bridge_node:
+  ros__parameters:
+    device: /dev/video0
+    width: 640
+    height: 480
+    fps: 15.0
+    frame_id: camera_link
+    mjpeg_port: 8091
+ground_camera_bridge_node:
+  ros__parameters:
+    device: ""
+    width: 640
+    height: 480
+    fps: 15.0
+    frame_id: ground_camera_link
+    mjpeg_port: 8092
+mission_manager_node:
+  ros__parameters:
+    publish_hz: 5.0
+    odom_timeout_sec: 1.5
+    camera_timeout_sec: 3.0
+    spray_duration_sec: 4.0
+    cooldown_duration_sec: 5.0
+    stop_confirm_sec: 1.0

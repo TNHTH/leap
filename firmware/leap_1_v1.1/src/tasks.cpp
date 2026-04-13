@@ -40,9 +40,12 @@ void loop_wifi_task(void *param) {
 
 // ------------------- LIDAR UART2 + PWM任务 -------------------
 void loop_lidar_task(void *param) {
+    const bool serial_transport_active = config.microros_transport_mode() == CONFIG_TRANSPORT_MODE_SERIAL;
     HardwareSerial Serial2(2);
     Serial2.begin(115200, SERIAL_8N1, 35, -1); // 只使用 RX=35，无 TX
-    Serial.println("[LIDAR] UART2 RX=21 started (no TX)");
+    if (!serial_transport_active) {
+        Serial.println("[LIDAR] UART2 RX=21 started (no TX)");
+    }
 
     // // PWM 控制引脚
     // const int LIDAR_PWM_PIN = 27;
@@ -68,11 +71,15 @@ void loop_lidar_task(void *param) {
     const uint16_t remotePort = 8889;
 
     // 等待 WiFi 连接
-    Serial.println("[LIDAR] Waiting for WiFi connection...");
+    if (!serial_transport_active) {
+        Serial.println("[LIDAR] Waiting for WiFi connection...");
+    }
     while (WiFi.status() != WL_CONNECTED) {
         vTaskDelay(pdMS_TO_TICKS(500));
     }
-    Serial.println("[LIDAR] WiFi connected, start data forwarding.");
+    if (!serial_transport_active) {
+        Serial.println("[LIDAR] WiFi connected, start data forwarding.");
+    }
 
     uint8_t buf[512];
     while (true) {
@@ -86,7 +93,9 @@ void loop_lidar_task(void *param) {
             udp.write(buf, readLen);
             udp.endPacket();
 
-            Serial.printf("[LIDAR] Sent %d bytes\n", readLen);
+            if (!serial_transport_active) {
+                Serial.printf("[LIDAR] Sent %d bytes\n", readLen);
+            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(5));

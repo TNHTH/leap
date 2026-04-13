@@ -85,8 +85,21 @@ void LeapBotConfig::init(String namespace_)
         preferences.putString(CONFIG_NAME_MOTOR1_STARTUP_BOOST_PWM, CONFIG_DEFAULT_MOTOR1_STARTUP_BOOST_PWM);
         preferences.putString(CONFIG_NAME_MOTOR0_STARTUP_BOOST_MS, CONFIG_DEFAULT_MOTOR0_STARTUP_BOOST_MS);
         preferences.putString(CONFIG_NAME_MOTOR1_STARTUP_BOOST_MS, CONFIG_DEFAULT_MOTOR1_STARTUP_BOOST_MS);
+        preferences.putString(CONFIG_NAME_PUMP_GPIO, CONFIG_DEFAULT_PUMP_GPIO);
+        preferences.putString(CONFIG_NAME_PUMP_ACTIVE_LEVEL, CONFIG_DEFAULT_PUMP_ACTIVE_LEVEL);
+        preferences.putString(CONFIG_NAME_PUMP_TIMEOUT_MS, CONFIG_DEFAULT_PUMP_TIMEOUT_MS);
 
         preferences.putBool("first_startup", false);
+    }
+
+    if (!preferences.isKey(CONFIG_NAME_PUMP_GPIO)) {
+        preferences.putString(CONFIG_NAME_PUMP_GPIO, CONFIG_DEFAULT_PUMP_GPIO);
+    }
+    if (!preferences.isKey(CONFIG_NAME_PUMP_ACTIVE_LEVEL)) {
+        preferences.putString(CONFIG_NAME_PUMP_ACTIVE_LEVEL, CONFIG_DEFAULT_PUMP_ACTIVE_LEVEL);
+    }
+    if (!preferences.isKey(CONFIG_NAME_PUMP_TIMEOUT_MS)) {
+        preferences.putString(CONFIG_NAME_PUMP_TIMEOUT_MS, CONFIG_DEFAULT_PUMP_TIMEOUT_MS);
     }
 }
 
@@ -99,6 +112,9 @@ uint32_t LeapBotConfig::is_first_startup()
 bool LeapBotConfig::config(String key, String value)
 {
     log_debug("config", "save config key=%s,value=%s", key.c_str(), value.c_str());
+    if (key == "pump_active_level") {
+        key = CONFIG_NAME_PUMP_ACTIVE_LEVEL;
+    }
     return preferences.putString(key.c_str(), value.c_str());
 }
 
@@ -203,6 +219,15 @@ String LeapBotConfig::config_str()
 
     config.concat("\n$motor1_start_boost_ms=");
     config.concat(motor_startup_boost_ms(1));
+
+    config.concat("\n$pump_gpio=");
+    config.concat(pump_gpio());
+
+    config.concat("\n$pump_active_level=");
+    config.concat(pump_active_level() ? 1 : 0);
+
+    config.concat("\n$pump_timeout_ms=");
+    config.concat(pump_timeout_ms());
 
     // config.concat("\n$pid_outlimit=");
     // config.concat(kinematics_pid_out_limit());
@@ -353,6 +378,21 @@ uint32_t LeapBotConfig::motor_startup_boost_pwm(uint8_t id)
 uint32_t LeapBotConfig::motor_startup_boost_ms(uint8_t id)
 {
     return preferences.getString(motor_startup_boost_ms_key(id), motor_startup_boost_ms_default(id)).toInt();
+}
+
+uint32_t LeapBotConfig::pump_gpio()
+{
+    return preferences.getString(CONFIG_NAME_PUMP_GPIO, CONFIG_DEFAULT_PUMP_GPIO).toInt();
+}
+
+bool LeapBotConfig::pump_active_level()
+{
+    return preferences.getString(CONFIG_NAME_PUMP_ACTIVE_LEVEL, CONFIG_DEFAULT_PUMP_ACTIVE_LEVEL).toInt() != 0;
+}
+
+uint32_t LeapBotConfig::pump_timeout_ms()
+{
+    return preferences.getString(CONFIG_NAME_PUMP_TIMEOUT_MS, CONFIG_DEFAULT_PUMP_TIMEOUT_MS).toInt();
 }
 
 /**
