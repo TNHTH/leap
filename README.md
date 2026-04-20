@@ -92,3 +92,17 @@ colcon build --packages-select xuegecar_bringup
 source ~/.bashrc
 ros2 launch xuegecar_bringup leap1_stack.launch.py
 ```
+
+网页控制端：
+
+```bash
+cd /home/gwh/leap/ros2_ws/src/leap1/tools
+./run_leap1_web_control.sh
+```
+
+未建图手柄联调：
+
+```bash
+cd /home/gwh/leap/ros2_ws/src/leap1/tools
+./run_leap1_manual_drive_runtime.sh
+```

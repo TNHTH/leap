@@ -93,11 +93,15 @@ void safety_init()
 
 void safety_loop()
 {
-    if (motion_command_source == MOTION_SOURCE_AGENT) {
-        if (agent_state != AGENT_CONNECTED) {
+    if (motion_command_source != MOTION_SOURCE_NONE) {
+        if (motion_command_source == MOTION_SOURCE_AGENT && agent_state != AGENT_CONNECTED) {
             force_motion_stop_internal("agent disconnected, force stop motors");
         } else if (CMD_VEL_TIMEOUT_MS > 0 && (millis() - motion_last_command_ms) > CMD_VEL_TIMEOUT_MS) {
-            force_motion_stop_internal("cmd_vel timeout, force stop motors");
+            if (motion_command_source == MOTION_SOURCE_WEB) {
+                force_motion_stop_internal("web motion timeout, force stop motors");
+            } else {
+                force_motion_stop_internal("cmd_vel timeout, force stop motors");
+            }
         }
     }
 

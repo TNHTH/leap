@@ -41,6 +41,10 @@ def camera_image_topic(camera_name: str) -> str:
     return scoped_topic(f"/{camera_name}/image_raw")
 
 
+def camera_info_topic(camera_name: str) -> str:
+    return scoped_topic(f"/{camera_name}/camera_info")
+
+
 MISSION_COMMAND_TOPIC = scoped_topic("/mission/command")
 MISSION_STATE_TOPIC = scoped_topic("/mission/state")
 MISSION_LOG_TOPIC = scoped_topic("/mission/log")
@@ -50,6 +54,9 @@ MAP_REQUEST_TOPIC = scoped_topic("/map/request")
 MAP_RESPONSE_TOPIC = scoped_topic("/map/response")
 PATROL_STATUS_TOPIC = scoped_topic("/patrol/status")
 CAMERA_STATUS_TOPIC = scoped_topic("/camera/status")
+PERCEPTION_DETECTION_TOPIC = scoped_topic("/perception/detection")
+PERCEPTION_STATUS_TOPIC = scoped_topic("/perception/status")
+SAFETY_STATUS_TOPIC = scoped_topic("/safety/status")
 
 
 def now_stamp(node) -> Time:

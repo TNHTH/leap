@@ -11,14 +11,17 @@
 
   <depend>action_msgs</depend>
   <depend>builtin_interfaces</depend>
+  <depend>diagnostic_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>leap1_a20_interfaces</depend>
   <depend>nav2_msgs</depend>
   <depend>nav_msgs</depend>
+  <depend>python3-opencv</depend>
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
+  <exec_depend>python3-numpy</exec_depend>
 
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>

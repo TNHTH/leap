@@ -46,9 +46,16 @@ install(
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
+  find_package(ament_cmake_pytest REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  ament_add_pytest_test(
+    test_leap1_stack_launch
+    test/test_leap1_stack_launch.py
+    PYTHON_EXECUTABLE /usr/bin/python3
+  )
 endif()
 
 ament_package()

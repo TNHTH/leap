@@ -1,3 +1,4 @@
+from glob import glob
 from setuptools import find_packages, setup
 
 
@@ -11,7 +12,7 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
-        ("share/" + package_name + "/launch", ["launch/a20_vehicle.launch.py"]),
+        ("share/" + package_name + "/launch", glob("launch/*.launch.py")),
         ("share/" + package_name + "/config", ["config/default_params.yaml"]),
         (
             "share/" + package_name + "/web",
@@ -38,6 +39,12 @@ setup(
             "map_annotation_server = leap1_a20.map_annotation_server:main",
             "broadcast_center_server = leap1_a20.broadcast_center_server:main",
             "patrol_executor_node = leap1_a20.patrol_executor_node:main",
+            "flame_detection_node = leap1_a20.flame_detection_node:main",
+            "yolo_detection_node = leap1_a20.yolo_detection_node:main",
+            "perception_bridge_node = leap1_a20.perception_bridge_node:main",
+            "smoke_detection_placeholder_node = leap1_a20.perception_placeholder_nodes:smoke_main",
+            "high_temp_detection_placeholder_node = leap1_a20.perception_placeholder_nodes:high_temp_main",
+            "safety_guard_node = leap1_a20.safety_guard_node:main",
         ]
     },
 )

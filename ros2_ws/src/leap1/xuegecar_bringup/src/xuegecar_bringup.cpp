@@ -21,27 +21,23 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_subscribe_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   nav_msgs::msg::Odometry odom_msg_;
+  bool has_odom_ = false;
 
   void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg)
   {
-    (void)msg;
-    // RCLCPP_INFO(this->get_logger(), "recv odom->base_footprint tf :(%f,%f)", msg->pose.pose.position.x, msg->pose.pose.position.y);
-    odom_msg_.pose.pose.position.x = msg->pose.pose.position.x;
-    odom_msg_.pose.pose.position.y = msg->pose.pose.position.y;
-    odom_msg_.pose.pose.position.z = msg->pose.pose.position.z;
-
-    odom_msg_.pose.pose.orientation.x = msg->pose.pose.orientation.x;
-    odom_msg_.pose.pose.orientation.y = msg->pose.pose.orientation.y;
-    odom_msg_.pose.pose.orientation.z = msg->pose.pose.orientation.z;
-    odom_msg_.pose.pose.orientation.w = msg->pose.pose.orientation.w;
+    odom_msg_ = *msg;
+    has_odom_ = true;
   }
 
 public:
   void publish_tf()
   {
+    if (!has_odom_) {
+      return;
+    }
+
     geometry_msgs::msg::TransformStamped transform;
-    double seconds = this->now().seconds();
-    transform.header.stamp = rclcpp::Time(static_cast<uint64_t>(seconds * 1e9));
+    transform.header.stamp = odom_msg_.header.stamp;
     transform.header.frame_id = "odom";
     transform.child_frame_id = "base_footprint";
 

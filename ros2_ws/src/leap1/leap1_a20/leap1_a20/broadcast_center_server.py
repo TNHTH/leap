@@ -30,6 +30,8 @@ from .common import (
     MISSION_LOG_TOPIC,
     MISSION_STATE_TOPIC,
     PATROL_STATUS_TOPIC,
+    PERCEPTION_STATUS_TOPIC,
+    SAFETY_STATUS_TOPIC,
     clamp,
     json_dumps,
     parse_json,
@@ -46,6 +48,7 @@ from .map_tools import (
     sanitize_map_id,
 )
 from .paths import ensure_runtime_layout, package_share, repo_root
+from .test_report_parser import build_broadcast_center_summary
 
 
 class _ThreadingHTTPServer(ThreadingHTTPServer):
@@ -65,6 +68,9 @@ class BroadcastCenterServer(Node):
         self.declare_parameter("expected_ground_camera", False)
         self.declare_parameter("teleop_hz", 20.0)
         self.declare_parameter("teleop_timeout_sec", 0.8)
+        self.declare_parameter("pump_keepalive_sec", 0.5)
+        self.declare_parameter("remote_vehicle_host", "leap@10.127.143.229")
+        self.declare_parameter("test_report_docx_path", "/home/gwh/下载/测试报告.docx")
         self.declare_parameter("runtime_root", "")
 
         self.bind_host = str(self.get_parameter("bind_host").value)
@@ -74,7 +80,11 @@ class BroadcastCenterServer(Node):
         self.expected_ground_camera = bool(self.get_parameter("expected_ground_camera").value)
         self.teleop_hz = float(self.get_parameter("teleop_hz").value)
         self.teleop_timeout_sec = float(self.get_parameter("teleop_timeout_sec").value)
+        self.pump_keepalive_sec = max(0.2, float(self.get_parameter("pump_keepalive_sec").value))
+        self.remote_vehicle_host = str(self.get_parameter("remote_vehicle_host").value)
+        self.test_report_docx_path = Path(str(self.get_parameter("test_report_docx_path").value)).expanduser()
         self.runtime_root = ensure_runtime_layout(str(self.get_parameter("runtime_root").value))
+        self.project_root = self.runtime_root.parent.parent
         self.web_root = package_share() / "web"
         self._boot_time = time.time()
         self._hostname = socket.gethostname()
@@ -91,6 +101,8 @@ class BroadcastCenterServer(Node):
         self.create_subscription(Odometry, "/odom", self._on_odom, 10)
         self.create_subscription(String, PATROL_STATUS_TOPIC, self._on_patrol_status, 10)
         self.create_subscription(String, MISSION_LOG_TOPIC, self._on_mission_log, 10)
+        self.create_subscription(String, PERCEPTION_STATUS_TOPIC, self._on_perception_status, 10)
+        self.create_subscription(String, SAFETY_STATUS_TOPIC, self._on_safety_status, 10)
 
         self._lock = threading.Lock()
         self._logs: deque[Dict[str, Any]] = deque(maxlen=120)
@@ -109,9 +121,16 @@ class BroadcastCenterServer(Node):
         self._last_odom_monotonic: float | None = None
         self._patrol: Dict[str, Any] = {}
         self._pump_state = False
+        self._perception: Dict[str, Any] = {}
+        self._safety: Dict[str, Any] = {}
+        self._perception_heartbeat: float | None = None
         self._teleop_target = {"vx": 0.0, "vz": 0.0}
         self._last_teleop_input = 0.0
         self._teleop_zero_sent = True
+        self._manual_pump_enabled = False
+        self._last_pump_keepalive = 0.0
+        self._background_processes: Dict[str, subprocess.Popen[Any]] = {}
+        self._background_process_logs: Dict[str, Path] = {}
         self._http_server: _ThreadingHTTPServer | None = None
 
         self.create_timer(1.0 / max(self.teleop_hz, 1.0), self._teleop_tick)
@@ -179,6 +198,9 @@ class BroadcastCenterServer(Node):
         ground_camera_age_sec = None
         if "ground_camera" in self._camera_heartbeats:
             ground_camera_age_sec = max(0.0, time.monotonic() - self._camera_heartbeats["ground_camera"])
+        perception_age_sec = None
+        if self._perception_heartbeat is not None:
+            perception_age_sec = max(0.0, time.monotonic() - self._perception_heartbeat)
 
         uptime_sec = 0
         try:
@@ -212,6 +234,8 @@ class BroadcastCenterServer(Node):
                 "ground_camera_expected": self.expected_ground_camera,
                 "ground_camera_online": bool(self._cameras.get("ground_camera", {}).get("online", False)),
                 "ground_camera_age_sec": ground_camera_age_sec,
+                "perception_online": perception_age_sec is not None and perception_age_sec <= 1.5,
+                "perception_age_sec": perception_age_sec,
             },
             "runtime_root": str(self.runtime_root),
             "updated_at": utc_now_text(),
@@ -220,6 +244,7 @@ class BroadcastCenterServer(Node):
     def destroy_node(self) -> bool:
         if rclpy.ok():
             try:
+                self._manual_pump_enabled = False
                 self._publish_zero()
                 self._publish_pump(False)
             except Exception as exc:  # noqa: BLE001
@@ -264,6 +289,17 @@ class BroadcastCenterServer(Node):
         if not self._teleop_zero_sent:
             self._publish_zero()
             self._teleop_zero_sent = True
+
+        if self._manual_pump_enabled and (now - self._last_pump_keepalive) >= self.pump_keepalive_sec:
+            self._publish_mission_command(
+                {
+                    "command": "authorized_pump_test",
+                    "duration_sec": max(2.0, self.pump_keepalive_sec * 3.0),
+                    "detail": "网页持续抽水保活",
+                }
+            )
+            self._publish_pump(True)
+            self._last_pump_keepalive = now
 
     def _on_mission_state(self, msg: MissionState) -> None:
         with self._lock:
@@ -318,6 +354,15 @@ class BroadcastCenterServer(Node):
         with self._lock:
             self._patrol = parse_json(msg.data)
 
+    def _on_perception_status(self, msg: String) -> None:
+        self._perception_heartbeat = time.monotonic()
+        with self._lock:
+            self._perception = parse_json(msg.data)
+
+    def _on_safety_status(self, msg: String) -> None:
+        with self._lock:
+            self._safety = parse_json(msg.data)
+
     def _on_mission_log(self, msg: String) -> None:
         payload = parse_json(msg.data)
         self._append_log(str(payload.get("level", "info")), str(payload.get("message", msg.data)))
@@ -330,6 +375,8 @@ class BroadcastCenterServer(Node):
                 "battery": dict(self._battery),
                 "odom": dict(self._odom),
                 "pump_state": self._pump_state,
+                "perception": dict(self._perception),
+                "safety": dict(self._safety),
                 "patrol": dict(self._patrol),
                 "teleop": {
                     "vx": self._teleop_target["vx"],
@@ -367,6 +414,9 @@ class BroadcastCenterServer(Node):
         self._append_log("warning", f"火情命令: active={payload.get('active')}")
         return {"published": True, "payload": payload}
 
+    def _panel_is_status_only(self) -> bool:
+        return self.panel_mode == "status_only"
+
     def _save_map(self, map_id: str) -> Dict[str, Any]:
         safe_map_id = sanitize_map_id(map_id)
         target_dir = map_dir(self.runtime_root, safe_map_id)
@@ -399,6 +449,122 @@ class BroadcastCenterServer(Node):
         keepout = draw_keepout_mask(self.runtime_root, map_id, annotations)
         self._append_log("info", f"地图标注已保存: {map_id}")
         return {"map_id": map_id, "annotations": annotations, "keepout": keepout}
+
+    def _test_report_summary_payload(self) -> Dict[str, Any]:
+        if not self.test_report_docx_path.is_file():
+            return {
+                "available": False,
+                "docx_path": str(self.test_report_docx_path),
+                "rows": [],
+                "error": "测试报告文件不存在",
+            }
+        summary = build_broadcast_center_summary(self.test_report_docx_path)
+        summary["available"] = True
+        return summary
+
+    def _start_background_process(
+        self,
+        process_name: str,
+        cmd: list[str],
+        *,
+        cwd: Path | None = None,
+        env: Dict[str, str] | None = None,
+    ) -> Dict[str, Any]:
+        existing = self._background_processes.get(process_name)
+        existing_log = self._background_process_logs.get(process_name)
+        if existing is not None and existing.poll() is None:
+            return {
+                "ok": True,
+                "started": False,
+                "already_running": True,
+                "pid": existing.pid,
+                "log_path": str(existing_log) if existing_log else "",
+            }
+
+        log_path = self.runtime_root / "logs" / f"{process_name}-{int(time.time())}.log"
+        launch_env = os.environ.copy()
+        if env:
+            launch_env.update(env)
+
+        with log_path.open("ab") as log_file:
+            process = subprocess.Popen(
+                cmd,
+                cwd=str(cwd) if cwd else str(self.project_root),
+                env=launch_env,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+
+        self._background_processes[process_name] = process
+        self._background_process_logs[process_name] = log_path
+        self._append_log("info", f"已启动后台进程 {process_name} pid={process.pid}")
+        return {
+            "ok": True,
+            "started": True,
+            "already_running": False,
+            "pid": process.pid,
+            "log_path": str(log_path),
+        }
+
+    def _start_mapping_workbench(self) -> Dict[str, Any]:
+        script = self.project_root / "ros2_ws" / "src" / "leap1" / "tools" / "run_leap1_mapping_workbench.sh"
+        if not script.is_file():
+            raise FileNotFoundError(f"找不到建图工作台脚本: {script}")
+
+        return self._start_background_process(
+            "mapping_workbench",
+            ["bash", str(script)],
+            cwd=script.parent,
+            env={
+                "LEAP1_WITH_A20_STACK": "false",
+                "LEAP1_WITH_VEHICLE_CAMERA": "false",
+                "LEAP1_WITH_GROUND_CAMERA": "false",
+                "LEAP1_WITH_RVIZ": "true",
+            },
+        )
+
+    def _run_remote_command(self, remote_command: str, *, timeout_sec: float = 30.0) -> Dict[str, Any]:
+        result = subprocess.run(
+            [
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=8",
+                self.remote_vehicle_host,
+                remote_command,
+            ],
+            cwd=str(self.project_root),
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "远端命令执行失败")
+        return {
+            "ok": True,
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+        }
+
+    def _ensure_remote_patrol_mode(self) -> Dict[str, Any]:
+        remote_command = (
+            "bash -lc '"
+            "if pgrep -f \"^bash /home/leap/leap/ros2_ws/src/leap1/tools/run_leap1_patrol_runtime.sh$\" >/dev/null; then "
+            "echo PATROL_ALREADY_RUNNING; "
+            "exit 0; "
+            "fi; "
+            "sudo -n systemctl stop leap1-vehicle-runtime.service >/dev/null 2>&1 || true; "
+            "nohup ~/leap/ros2_ws/src/leap1/tools/run_leap1_patrol_runtime.sh "
+            ">/tmp/leap1_patrol_runtime.log 2>&1 & "
+            "sleep 10; "
+            "pgrep -f \"^bash /home/leap/leap/ros2_ws/src/leap1/tools/run_leap1_patrol_runtime.sh$\" >/dev/null && echo PATROL_STARTED'"
+        )
+        result = self._run_remote_command(remote_command, timeout_sec=45.0)
+        self._append_log("info", f"树莓派巡航模式已确认: {result['stdout'] or 'ok'}")
+        return result
 
     def _serve_file(self, path: Path, handler: BaseHTTPRequestHandler) -> None:
         if not path.exists():
@@ -455,6 +621,10 @@ class BroadcastCenterServer(Node):
             def do_GET(self) -> None:  # noqa: N802
                 parsed = urlparse(self.path)
                 path = parsed.path
+                if path == "/favicon.ico":
+                    self.send_response(HTTPStatus.NO_CONTENT)
+                    self.end_headers()
+                    return
                 if path in {"/", "/index.html"}:
                     node._serve_file(node.web_root / "index.html", self)
                     return
@@ -466,6 +636,9 @@ class BroadcastCenterServer(Node):
                     return
                 if path == "/api/status":
                     self._send_json(node._status_payload())
+                    return
+                if path == "/api/test-report-summary":
+                    self._send_json(node._test_report_summary_payload())
                     return
                 if path == "/api/maps":
                     self._send_json({"maps": list_maps(node.runtime_root)})
@@ -493,9 +666,31 @@ class BroadcastCenterServer(Node):
                         return
                     if self.path == "/api/pump":
                         enabled = bool(payload.get("enabled", False))
-                        node._publish_pump(enabled)
-                        node._append_log("info", f"泵控制 -> {enabled}")
-                        self._send_json({"enabled": enabled})
+                        authorized_test = bool(payload.get("authorized_test", False))
+                        current_state = str(node._mission.get("state", "BOOT"))
+                        if enabled and current_state not in {"STOPPING", "SPRAYING"} and not authorized_test:
+                            self._send_json(
+                                {"ok": False, "error": "当前状态不允许直接开泵，请使用授权测试模式"},
+                                status=HTTPStatus.FORBIDDEN,
+                            )
+                            return
+                        if enabled and authorized_test:
+                            node._manual_pump_enabled = True
+                            node._last_pump_keepalive = 0.0
+                            node._publish_mission_command(
+                                {
+                                    "command": "authorized_pump_test",
+                                    "duration_sec": max(2.0, node.pump_keepalive_sec * 3.0),
+                                    "detail": "网页授权持续抽水",
+                                }
+                            )
+                            node._publish_pump(True)
+                            node._last_pump_keepalive = time.monotonic()
+                        else:
+                            node._manual_pump_enabled = False
+                            node._publish_pump(enabled)
+                        node._append_log("info", f"泵控制 -> {enabled} authorized_test={authorized_test}")
+                        self._send_json({"enabled": enabled, "authorized_test": authorized_test})
                         return
                     if self.path == "/api/fire":
                         self._send_json(node._publish_fire_command(payload))
@@ -504,9 +699,21 @@ class BroadcastCenterServer(Node):
                         self._send_json(node._publish_mission_command(payload))
                         return
                     if self.path == "/api/maps/save":
+                        if node._panel_is_status_only():
+                            self._send_json({"ok": False, "error": "status_only 模式禁止保存地图"}, status=HTTPStatus.FORBIDDEN)
+                            return
                         self._send_json(node._save_map(str(payload.get("map_id", "map_default"))))
                         return
+                    if self.path == "/api/runtime/mapping/start":
+                        self._send_json(node._start_mapping_workbench())
+                        return
+                    if self.path == "/api/runtime/patrol/ensure_remote":
+                        self._send_json(node._ensure_remote_patrol_mode())
+                        return
                     if self.path == "/api/maps/annotations":
+                        if node._panel_is_status_only():
+                            self._send_json({"ok": False, "error": "status_only 模式禁止修改地图标注"}, status=HTTPStatus.FORBIDDEN)
+                            return
                         self._send_json(node._save_annotations(payload))
                         return
                 except Exception as exc:  # noqa: BLE001

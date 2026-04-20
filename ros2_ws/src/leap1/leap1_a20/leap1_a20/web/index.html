@@ -4,9 +4,26 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Leap A20 广播中心</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=20260420-alarm-hidden" />
   </head>
   <body>
+    <div id="alarmOverlay" class="alarm-overlay" hidden>
+      <div class="alarm-card">
+        <div class="alarm-head">
+          <div>
+            <p class="eyebrow">EMERGENCY ALERT</p>
+            <h2 id="alarmTitle">火情告警</h2>
+          </div>
+          <button id="alarmDismissButton" class="ghost">确认</button>
+        </div>
+        <p id="alarmMessage" class="alarm-message">等待告警内容</p>
+        <div class="alarm-meta">
+          <span id="alarmTimestamp">-</span>
+          <span id="alarmSource">-</span>
+        </div>
+      </div>
+    </div>
+
     <header class="hero">
       <div class="hero-copy">
         <p class="eyebrow">LEAP A20 CONTROL DESK</p>
@@ -119,6 +136,98 @@
             <strong id="groundSignal">-</strong>
           </div>
         </div>
+        <div class="ops-grid">
+          <article class="ops-card">
+            <div class="ops-card-head">
+              <div>
+                <p class="ops-kicker">Perception Chain</p>
+                <h3>感知链路</h3>
+              </div>
+              <span class="ops-badge">中心端展示位</span>
+            </div>
+            <div class="ops-lane">
+              <div class="ops-node">
+                <span>车载视频</span>
+                <strong>前端已接流</strong>
+                <small>复用车载 C100 在线态，供检测链前置确认。</small>
+              </div>
+              <div class="ops-arrow" aria-hidden="true">→</div>
+              <div class="ops-node">
+                <span>固定机位</span>
+                <strong>双视角对照</strong>
+                <small>中心端保留交叉验证位，后续接入识别结果。</small>
+              </div>
+              <div class="ops-arrow" aria-hidden="true">→</div>
+              <div class="ops-node ops-node-muted">
+                <span>火情识别</span>
+                <strong>待模型接入</strong>
+                <small>占位用于展示目标框、置信度和最近告警时间。</small>
+              </div>
+            </div>
+          </article>
+          <article class="ops-card">
+            <div class="ops-card-head">
+              <div>
+                <p class="ops-kicker">Safety Guard</p>
+                <h3>安全守护</h3>
+              </div>
+              <span class="ops-badge">协议预留</span>
+            </div>
+            <div class="guardian-grid">
+              <div class="guardian-card">
+                <span>动作闸门</span>
+                <strong>急停 / 停泵优先</strong>
+                <small>保留控制接管展示位，异常时先停再清链路。</small>
+              </div>
+              <div class="guardian-card">
+                <span>区域约束</span>
+                <strong>Keepout 生效</strong>
+                <small>地图与路线下发后作为巡航安全边界基线。</small>
+              </div>
+              <div class="guardian-card guardian-card-accent">
+                <span>异常闭环</span>
+                <strong>告警待接入</strong>
+                <small>后续用于承接识别告警、链路丢失和人工接管提示。</small>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel sensor-panel">
+        <div class="panel-head">
+          <div>
+            <h2>传感器面板</h2>
+            <p class="panel-subtitle">汇总电量、感知、安全与待接入环境量，方便对照测试报告检查广播中心能力。</p>
+          </div>
+        </div>
+        <div class="sensor-grid">
+          <div class="sensor-card">
+            <span>电池状态</span>
+            <strong id="sensorBattery">-</strong>
+            <small>来自 /battery_state</small>
+          </div>
+          <div class="sensor-card">
+            <span>感知状态</span>
+            <strong id="sensorPerception">-</strong>
+            <small>火情模型最近一次裁决</small>
+          </div>
+          <div class="sensor-card">
+            <span>安全守护</span>
+            <strong id="sensorSafety">-</strong>
+            <small>守护节点最近一次状态</small>
+          </div>
+          <div class="sensor-card sensor-card-muted">
+            <span>水箱水位</span>
+            <strong id="sensorWaterLevel">待接入</strong>
+            <small>测试报告要求项，当前无硬件源</small>
+          </div>
+          <div class="sensor-card sensor-card-muted">
+            <span>环境温度</span>
+            <strong id="sensorTemperature">待接入</strong>
+            <small>测试报告要求项，当前无硬件源</small>
+          </div>
+        </div>
       </section>
 
       <section class="panel camera-panel">
@@ -168,7 +277,7 @@
         <div class="panel-head">
           <div>
             <h2>建图 Teleop 与泵控</h2>
-            <p class="panel-subtitle">按住方向键持续发送速度，松开或移出立即停。</p>
+            <p class="panel-subtitle">按住方向键持续发送速度，松开或移出立即停。未建图阶段可直接切到手柄联调入口。</p>
           </div>
         </div>
         <div class="teleop-layout">
@@ -188,6 +297,15 @@
             <button id="saveMapButton">保存当前地图</button>
           </div>
         </div>
+        <div class="gamepad-card">
+          <div>
+            <span>手柄状态</span>
+            <strong id="gamepadStatus">未检测</strong>
+            <small id="gamepadHint">浏览器支持 Gamepad API 时，可在未建图阶段直接用手柄发速度命令。</small>
+          </div>
+          <button id="gamepadToggleButton" class="ghost">启用手柄控制</button>
+        </div>
+        <p class="hint teleop-hint">物理手柄模式入口：`ros2_ws/src/leap1/tools/run_leap1_manual_drive_runtime.sh`。适用于未建图前的低风险人工挪车。</p>
       </section>
 
       <section class="panel route-panel">
@@ -216,6 +334,7 @@
         </label>
         <div class="inline-actions">
           <button id="saveRouteButton">保存路线</button>
+          <button id="openPatrolModeButton" class="ghost">打开巡航/避障模式</button>
           <button id="startSinglePatrolButton">启动单次巡航</button>
           <button id="startLoopPatrolButton" class="ghost">启动循环巡航</button>
           <button id="stopPatrolButton" class="danger">停止巡航</button>
@@ -260,6 +379,7 @@
               <option value="fire_risk_zone">火险区</option>
               <option value="equipment">设备点</option>
               <option value="water_source">水源点</option>
+              <option value="fixed_camera">固定摄像头位置</option>
               <option value="waypoint">航点</option>
             </select>
           </label>
@@ -273,7 +393,7 @@
             <p>先进入建图态，保存地图，再回到这里做航点和禁入区编辑。</p>
           </div>
         </div>
-        <p class="hint">区域类标注使用拖拽矩形，航点使用单击落点。严格禁入区会直接生成 keepout mask，巡航必须绕开。</p>
+        <p class="hint">区域类标注使用拖拽矩形，航点与固定摄像头位置使用单击落点。固定摄像头报警后，小车会前往该位置附近并用车载相机确认火源。</p>
       </section>
 
       <section class="panel log-panel">
@@ -284,6 +404,67 @@
           </div>
         </div>
         <pre id="logOutput"></pre>
+        <div class="history-toolbar">
+          <label>
+            日志级别
+            <select id="historyLevelFilter">
+              <option value="all">全部</option>
+              <option value="error">error</option>
+              <option value="warn">warn</option>
+              <option value="info">info</option>
+            </select>
+          </label>
+          <label class="history-keyword">
+            关键字
+            <input id="historyKeywordInput" type="text" placeholder="如：火情 / 停泵 / patrol" />
+          </label>
+          <button id="historyExportJsonButton" class="ghost">导出 JSON</button>
+          <button id="historyExportCsvButton" class="ghost">导出 CSV</button>
+        </div>
+        <div class="history-table-wrap">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>级别</th>
+                <th>消息</th>
+              </tr>
+            </thead>
+            <tbody id="historyTableBody">
+              <tr>
+                <td colspan="3">暂无日志记录</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel report-panel">
+        <div class="panel-head">
+          <div>
+            <h2>测试报告汇总</h2>
+            <p class="panel-subtitle">从“测试报告.docx”提取适合广播中心展示的测试项，便于现场对照记录。</p>
+          </div>
+        </div>
+        <div id="testReportSummaryMeta" class="hint"></div>
+        <div class="report-table-wrap">
+          <table class="report-table">
+            <thead>
+              <tr>
+                <th>类别</th>
+                <th>测试项</th>
+                <th>关注数据</th>
+                <th>报告记录位</th>
+                <th>来源</th>
+              </tr>
+            </thead>
+            <tbody id="testReportSummaryBody">
+              <tr>
+                <td colspan="5">等待测试报告加载</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </main>
 

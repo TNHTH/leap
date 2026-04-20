@@ -23,6 +23,19 @@ from .common import (
     parse_json,
     utc_now_text,
 )
+from .paths import ensure_runtime_layout
+from .state_store import JsonStateStore
+
+
+RESTART_INTERLOCK_STATES = {"MAPPING", "PATROLLING", "FIRE_ALERT", "STOPPING", "SPRAYING", "COOLDOWN"}
+
+
+def should_trip_restart_interlock(snapshot: Dict) -> bool:
+    if not snapshot:
+        return False
+    if snapshot.get("clean_shutdown", True):
+        return False
+    return str(snapshot.get("state", "")) in RESTART_INTERLOCK_STATES
 
 
 class MissionManagerNode(Node):
@@ -30,30 +43,41 @@ class MissionManagerNode(Node):
 
     def __init__(self) -> None:
         super().__init__("mission_manager_node")
+        self.declare_parameter("runtime_root", "")
         self.declare_parameter("publish_hz", 5.0)
         self.declare_parameter("odom_timeout_sec", 1.5)
         self.declare_parameter("camera_timeout_sec", 3.0)
         self.declare_parameter("spray_duration_sec", 4.0)
+        self.declare_parameter("spray_requires_distance", False)
+        self.declare_parameter("spray_target_distance_m", 0.45)
+        self.declare_parameter("spray_distance_tolerance_m", 0.10)
         self.declare_parameter("cooldown_duration_sec", 5.0)
         self.declare_parameter("stop_confirm_sec", 1.0)
         self.declare_parameter("startup_grace_sec", 8.0)
         self.declare_parameter("require_odom", True)
         self.declare_parameter("require_vehicle_camera", True)
         self.declare_parameter("required_camera_name", "vehicle_camera")
+        self.declare_parameter("restart_interlock_enabled", True)
 
+        self.runtime_root = ensure_runtime_layout(str(self.get_parameter("runtime_root").value))
         self.publish_hz = float(self.get_parameter("publish_hz").value)
         self.odom_timeout_sec = float(self.get_parameter("odom_timeout_sec").value)
         self.camera_timeout_sec = float(self.get_parameter("camera_timeout_sec").value)
         self.spray_duration_sec = float(self.get_parameter("spray_duration_sec").value)
+        self.spray_requires_distance = bool(self.get_parameter("spray_requires_distance").value)
+        self.spray_target_distance_m = float(self.get_parameter("spray_target_distance_m").value)
+        self.spray_distance_tolerance_m = float(self.get_parameter("spray_distance_tolerance_m").value)
         self.cooldown_duration_sec = float(self.get_parameter("cooldown_duration_sec").value)
         self.stop_confirm_sec = float(self.get_parameter("stop_confirm_sec").value)
         self.startup_grace_sec = float(self.get_parameter("startup_grace_sec").value)
         self.require_odom = bool(self.get_parameter("require_odom").value)
         self.require_vehicle_camera = bool(self.get_parameter("require_vehicle_camera").value)
         self.required_camera_name = str(self.get_parameter("required_camera_name").value)
+        self.restart_interlock_enabled = bool(self.get_parameter("restart_interlock_enabled").value)
 
         self.state_pub = self.create_publisher(MissionState, MISSION_STATE_TOPIC, 10)
         self.log_pub = self.create_publisher(String, MISSION_LOG_TOPIC, 10)
+        self.command_pub = self.create_publisher(String, MISSION_COMMAND_TOPIC, 10)
         self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
         self.pump_pub = self.create_publisher(Bool, "/pump_cmd", 10)
 
@@ -74,12 +98,47 @@ class MissionManagerNode(Node):
         self._camera_heartbeats: Dict[str, float] = {}
         self._camera_online: Dict[str, bool] = {}
         self._resume_state = "MISSION_READY"
+        self._patrol_mode = "single_run"
         self._state_deadline = self._start_time + 0.5
         self._stop_reason = ""
         self._last_zero_cmd_time = 0.0
         self._last_pump_cmd: bool | None = None
+        self._fire_distance_m: float | None = None
+        self._state_store = JsonStateStore(self.runtime_root / "logs" / "mission_manager_state.json")
+
+        previous_snapshot = self._state_store.load(default={})
+        if self.restart_interlock_enabled and should_trip_restart_interlock(previous_snapshot):
+            previous_state = str(previous_snapshot.get("state", "unknown"))
+            self._state = "FAULT"
+            self._detail = f"检测到异常重启，上一状态为 {previous_state}，需人工确认后再恢复任务"
+            self._fault_code = "unclean_restart_interlock"
+            self._patrol_active = False
+            self._fire_active = False
+            self._state_deadline = self._start_time
+            self.get_logger().error(self._detail)
+
+        self._persist_runtime_state(clean_shutdown=False)
 
         self.create_timer(1.0 / max(self.publish_hz, 1.0), self._on_tick)
+
+    def destroy_node(self) -> bool:
+        self._persist_runtime_state(clean_shutdown=True)
+        return super().destroy_node()
+
+    def _persist_runtime_state(self, clean_shutdown: bool) -> None:
+        self._state_store.save(
+            {
+                "state": self._state,
+                "detail": self._detail,
+                "fault_code": self._fault_code,
+                "map_id": self._map_id,
+                "route_id": self._route_id,
+                "patrol_active": self._patrol_active,
+                "fire_active": self._fire_active,
+                "clean_shutdown": clean_shutdown,
+                "updated_at": utc_now_text(),
+            }
+        )
 
     def _publish_log(self, level: str, message: str) -> None:
         payload = String()
@@ -93,6 +152,13 @@ class MissionManagerNode(Node):
         )
         self.log_pub.publish(payload)
 
+    def _emit_command(self, command: str, **kwargs) -> None:
+        payload = {"command": command}
+        payload.update(kwargs)
+        msg = String()
+        msg.data = json_dumps(payload)
+        self.command_pub.publish(msg)
+
     def _transition(self, new_state: str, detail: str, fault_code: str = "") -> None:
         if new_state not in MISSION_STATES:
             self.get_logger().warning(f"忽略未知状态: {new_state}")
@@ -105,6 +171,7 @@ class MissionManagerNode(Node):
         if changed:
             self.get_logger().info(f"状态切换 -> {new_state}: {detail}")
             self._publish_log("info", f"状态切换 -> {new_state}: {detail}")
+        self._persist_runtime_state(clean_shutdown=False)
 
     def _enter_fault(self, fault_code: str, detail: str) -> None:
         if self._state == "FAULT" and self._fault_code == fault_code:
@@ -143,14 +210,17 @@ class MissionManagerNode(Node):
         self._camera_online[name] = bool(payload.get("online", False))
 
     def _on_fire_event(self, msg: FireEvent) -> None:
+        self._apply_fire_state(bool(msg.active), msg.description or "收到火情事件")
+
+    def _apply_fire_state(self, active: bool, detail: str) -> None:
         previous_fire_active = self._fire_active
-        self._fire_active = bool(msg.active)
-        if msg.active:
+        self._fire_active = active
+        if active:
             if previous_fire_active:
                 return
             self._resume_state = "PATROLLING" if self._patrol_active else "MISSION_READY"
             self._patrol_active = False
-            self._transition("FIRE_ALERT", msg.description or "收到火情事件")
+            self._transition("FIRE_ALERT", detail or "收到火情事件")
             self._state_deadline = time.monotonic() + 0.2
             self._publish_zero_cmd(force=True)
             self._publish_pump(False)
@@ -166,10 +236,20 @@ class MissionManagerNode(Node):
         self._map_id = str(payload.get("map_id", self._map_id))
         self._route_id = str(payload.get("route_id", self._route_id))
         detail = str(payload.get("detail", command))
+        if command == "authorized_pump_test":
+            self._publish_log("info", "收到授权泵测试命令")
+            return
 
         if command in {"boot_done", "enter_idle"}:
             self._patrol_active = False
             self._transition("IDLE", detail)
+            return
+        if command == "set_fire_active":
+            self._apply_fire_state(bool(payload.get("active", False)), detail or "收到火情命令")
+            return
+        if command == "set_fire_distance":
+            distance = payload.get("distance_m")
+            self._fire_distance_m = float(distance) if distance is not None else None
             return
         if command in {"enter_mapping", "start_mapping"}:
             self._patrol_active = False
@@ -186,6 +266,7 @@ class MissionManagerNode(Node):
             return
         if command == "start_patrol":
             self._patrol_active = True
+            self._patrol_mode = str(payload.get("mode", self._patrol_mode or "single_run"))
             self._transition("PATROLLING", detail)
             return
         if command == "stop_patrol":
@@ -221,6 +302,7 @@ class MissionManagerNode(Node):
         msg.patrol_active = self._patrol_active
         msg.fire_active = self._fire_active
         self.state_pub.publish(msg)
+        self._persist_runtime_state(clean_shutdown=False)
 
     def _check_timeouts(self, now: float) -> None:
         if now - self._start_time < self.startup_grace_sec:
@@ -265,6 +347,10 @@ class MissionManagerNode(Node):
             if now < self._state_deadline:
                 return
             if self._fire_active:
+                if not self._spray_distance_ready():
+                    self._publish_zero_cmd()
+                    self._publish_pump(False)
+                    return
                 self._transition("SPRAYING", "停车完成，开始喷水")
                 self._state_deadline = now + self.spray_duration_sec
             else:
@@ -290,11 +376,37 @@ class MissionManagerNode(Node):
                 self._state_deadline = now + 0.2
                 return
             if self._resume_state == "PATROLLING":
-                self._patrol_active = True
-                self._transition("PATROLLING", "冷却完成，恢复巡航")
+                if self._map_id and self._route_id:
+                    self._patrol_active = True
+                    self._transition("PATROLLING", "冷却完成，恢复巡航")
+                    self._emit_command(
+                        "start_patrol",
+                        map_id=self._map_id,
+                        route_id=self._route_id,
+                        mode=self._patrol_mode,
+                        detail="冷却完成，恢复巡航",
+                    )
+                else:
+                    self._patrol_active = False
+                    self._transition("MISSION_READY", "冷却完成，但缺少巡航上下文")
             else:
                 self._patrol_active = False
                 self._transition("MISSION_READY", "冷却完成，等待下一条任务")
+
+    def _spray_distance_ready(self) -> bool:
+        if not self.spray_requires_distance:
+            return True
+        if self._fire_distance_m is None:
+            self._detail = "等待进入固定水泵喷射距离"
+            return False
+        delta = abs(self._fire_distance_m - self.spray_target_distance_m)
+        if delta <= self.spray_distance_tolerance_m:
+            return True
+        self._detail = (
+            f"等待喷射距离: current={self._fire_distance_m:.2f}m "
+            f"target={self.spray_target_distance_m:.2f}m"
+        )
+        return False
 
     def _on_tick(self) -> None:
         now = time.monotonic()

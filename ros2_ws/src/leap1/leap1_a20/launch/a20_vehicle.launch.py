@@ -1,31 +1,31 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, LogInfo, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, EmitEvent, ExecuteProcess, LogInfo, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import FindExecutable, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
     runtime_root = LaunchConfiguration("runtime_root")
-    panel_mode = LaunchConfiguration("panel_mode")
     require_odom = LaunchConfiguration("require_odom")
     require_vehicle_camera = LaunchConfiguration("require_vehicle_camera")
-    with_web_panel = LaunchConfiguration("with_web_panel")
     with_vehicle_camera = LaunchConfiguration("with_vehicle_camera")
-    with_ground_camera = LaunchConfiguration("with_ground_camera")
+    with_manual_fire_tools = LaunchConfiguration("with_manual_fire_tools")
+    with_aux_detection_placeholders = LaunchConfiguration("with_aux_detection_placeholders")
+    with_flame_detector = LaunchConfiguration("with_flame_detector")
+    with_yolo_detector = LaunchConfiguration("with_yolo_detector")
     vehicle_camera_device = LaunchConfiguration("vehicle_camera_device")
-    ground_camera_device = LaunchConfiguration("ground_camera_device")
-    web_bind_port = LaunchConfiguration("web_bind_port")
     front_camera_port = LaunchConfiguration("front_camera_port")
-    ground_camera_port = LaunchConfiguration("ground_camera_port")
+    yolo_model_path = LaunchConfiguration("yolo_model_path")
 
     fire_node = Node(
         package="leap1_a20",
         executable="fire_event_placeholder_node",
         output="screen",
+        condition=IfCondition(with_manual_fire_tools),
     )
 
     mission_node = Node(
@@ -33,6 +33,9 @@ def generate_launch_description():
         executable="mission_manager_node",
         output="screen",
         parameters=[
+            {
+                "runtime_root": runtime_root,
+            },
             {
                 "require_odom": ParameterValue(
                     require_odom,
@@ -62,20 +65,55 @@ def generate_launch_description():
         parameters=[{"runtime_root": runtime_root}],
     )
 
-    broadcast_node = Node(
+    perception_bridge_node = Node(
         package="leap1_a20",
-        executable="broadcast_center_server",
+        executable="perception_bridge_node",
+        output="screen",
+    )
+
+    yolo_detector_node = Node(
+        package="leap1_a20",
+        executable="yolo_detection_node",
+        name="vehicle_yolo_detection_node",
         output="screen",
         parameters=[
             {
-                "panel_mode": panel_mode,
-                "runtime_root": runtime_root,
-                "bind_port": ParameterValue(web_bind_port, value_type=int),
-                "expected_vehicle_camera": ParameterValue(with_vehicle_camera, value_type=bool),
-                "expected_ground_camera": ParameterValue(with_ground_camera, value_type=bool),
+                "camera_id": "vehicle_camera",
+                "model_path": yolo_model_path,
+                "region_id": "",
             }
         ],
-        condition=IfCondition(with_web_panel),
+        condition=IfCondition(with_yolo_detector),
+    )
+
+    smoke_placeholder_node = Node(
+        package="leap1_a20",
+        executable="smoke_detection_placeholder_node",
+        output="screen",
+        condition=IfCondition(with_aux_detection_placeholders),
+    )
+
+    high_temp_placeholder_node = Node(
+        package="leap1_a20",
+        executable="high_temp_detection_placeholder_node",
+        output="screen",
+        condition=IfCondition(with_aux_detection_placeholders),
+    )
+
+    safety_guard_node = Node(
+        package="leap1_a20",
+        executable="safety_guard_node",
+        output="screen",
+    )
+
+    flame_detector_node = ExecuteProcess(
+        cmd=[
+            FindExecutable(name="python3"),
+            "-m",
+            "leap1_a20.flame_detection_node",
+        ],
+        output="screen",
+        condition=IfCondition(with_flame_detector),
     )
 
     vehicle_camera_node = Node(
@@ -91,19 +129,6 @@ def generate_launch_description():
         condition=IfCondition(with_vehicle_camera),
     )
 
-    ground_camera_node = Node(
-        package="leap1_a20",
-        executable="ground_camera_bridge_node",
-        output="screen",
-        parameters=[
-            {
-                "device": ground_camera_device,
-                "mjpeg_port": ParameterValue(ground_camera_port, value_type=int),
-            }
-        ],
-        condition=IfCondition(with_ground_camera),
-    )
-
     mission_exit_shutdown = RegisterEventHandler(
         OnProcessExit(
             target_action=mission_node,
@@ -117,32 +142,31 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("runtime_root", default_value="", description="A20 运行时根目录"),
-            DeclareLaunchArgument("panel_mode", default_value="full_stack", description="面板模式：full_stack 或 status_only"),
             DeclareLaunchArgument("require_odom", default_value="true", description="是否要求里程计心跳，否则进入故障"),
             DeclareLaunchArgument("require_vehicle_camera", default_value="true", description="是否要求车载相机心跳，否则进入故障"),
-            DeclareLaunchArgument("with_web_panel", default_value="true", description="是否启用广播中心 Web 面板"),
             DeclareLaunchArgument("with_vehicle_camera", default_value="true", description="是否启动车载相机"),
-            DeclareLaunchArgument("with_ground_camera", default_value="true", description="是否启动固定摄像头占位"),
+            DeclareLaunchArgument("with_flame_detector", default_value="false", description="是否启用内置轻量火焰检测"),
+            DeclareLaunchArgument("with_yolo_detector", default_value="true", description="是否启用 camera_runtime YOLO 检测"),
+            DeclareLaunchArgument("with_manual_fire_tools", default_value="false", description="是否启用手动火情占位"),
+            DeclareLaunchArgument("with_aux_detection_placeholders", default_value="false", description="是否启用烟雾/高温占位"),
             DeclareLaunchArgument(
                 "vehicle_camera_device",
                 default_value="/dev/video0",
                 description="车载 C100 对应的视频设备",
             ),
-            DeclareLaunchArgument(
-                "ground_camera_device",
-                default_value="",
-                description="固定摄像头设备路径，留空则节点保持离线占位",
-            ),
-            DeclareLaunchArgument("web_bind_port", default_value="8090", description="广播中心 Web 端口"),
             DeclareLaunchArgument("front_camera_port", default_value="8091", description="车载相机 MJPEG 端口"),
-            DeclareLaunchArgument("ground_camera_port", default_value="8092", description="固定摄像头 MJPEG 端口"),
+            DeclareLaunchArgument("yolo_model_path", default_value="", description="camera_runtime YOLO best.pt 路径"),
             fire_node,
             mission_node,
             map_annotation_node,
             patrol_node,
-            broadcast_node,
+            perception_bridge_node,
+            yolo_detector_node,
+            smoke_placeholder_node,
+            high_temp_placeholder_node,
+            safety_guard_node,
+            flame_detector_node,
             vehicle_camera_node,
-            ground_camera_node,
             mission_exit_shutdown,
         ]
     )

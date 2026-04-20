@@ -14,6 +14,7 @@ DEFAULT_ANNOTATIONS: Dict[str, Any] = {
     "updated_at": "",
     "zones": [],
     "waypoints": [],
+    "fixed_cameras": [],
     "routes": [],
 }
 
@@ -87,6 +88,7 @@ def list_maps(runtime_root: Path) -> List[Dict[str, Any]]:
                 "has_keepout": keepout_yaml_path(runtime_root, child.name).exists(),
                 "zone_count": len(annotations.get("zones", [])),
                 "waypoint_count": len(annotations.get("waypoints", [])),
+                "fixed_camera_count": len(annotations.get("fixed_cameras", [])),
                 "route_count": len(annotations.get("routes", [])),
             }
         )
@@ -106,6 +108,7 @@ def save_annotations(runtime_root: Path, map_id: str, payload: Dict[str, Any]) -
     payload = copy.deepcopy(payload)
     payload.setdefault("zones", [])
     payload.setdefault("waypoints", [])
+    payload.setdefault("fixed_cameras", [])
     payload.setdefault("routes", [])
     payload["map_id"] = sanitize_map_id(map_id)
     path = annotations_path(runtime_root, map_id)

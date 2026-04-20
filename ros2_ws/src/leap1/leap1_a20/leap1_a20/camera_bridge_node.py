@@ -4,16 +4,18 @@ import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import socket
 from typing import Optional
 from urllib.parse import urlparse
 
 import cv2
 import rclpy
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from rclpy.node import Node
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
 
-from .common import CAMERA_STATUS_TOPIC, camera_image_topic, json_dumps, utc_now_text
+from .common import CAMERA_STATUS_TOPIC, camera_image_topic, camera_info_topic, json_dumps, utc_now_text
 
 
 class _ReusableThreadingHTTPServer(ThreadingHTTPServer):
@@ -41,6 +43,7 @@ class CameraBridgeNode(Node):
         self.declare_parameter("frame_id", default_frame_id)
         self.declare_parameter("mjpeg_port", default_mjpeg_port)
         self.declare_parameter("mjpeg_host", "0.0.0.0")
+        self.declare_parameter("public_host", "")
 
         self.camera_name = self.get_parameter("camera_name").value
         self.device = str(self.get_parameter("device").value)
@@ -50,9 +53,12 @@ class CameraBridgeNode(Node):
         self.frame_id = str(self.get_parameter("frame_id").value)
         self.mjpeg_port = int(self.get_parameter("mjpeg_port").value)
         self.mjpeg_host = str(self.get_parameter("mjpeg_host").value)
+        self.public_host = str(self.get_parameter("public_host").value)
 
         self.image_pub = self.create_publisher(Image, camera_image_topic(self.camera_name), 10)
+        self.camera_info_pub = self.create_publisher(CameraInfo, camera_info_topic(self.camera_name), 10)
         self.status_pub = self.create_publisher(String, CAMERA_STATUS_TOPIC, 10)
+        self.diagnostics_pub = self.create_publisher(DiagnosticArray, "/diagnostics", 10)
 
         self._lock = threading.Lock()
         self._latest_jpeg: bytes = b""
@@ -67,6 +73,28 @@ class CameraBridgeNode(Node):
         self._start_http_server()
         self.create_timer(1.0, self._publish_status)
 
+    def _resolve_public_host(self) -> str:
+        if self.public_host:
+            return self.public_host
+        try:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                probe.connect(("8.8.8.8", 80))
+                candidate = probe.getsockname()[0]
+                if candidate and not candidate.startswith("127."):
+                    return candidate
+            finally:
+                probe.close()
+        except OSError:
+            pass
+        try:
+            candidate = socket.gethostbyname(socket.gethostname())
+            if candidate and not candidate.startswith("127."):
+                return candidate
+        except OSError:
+            pass
+        return "127.0.0.1"
+
     def destroy_node(self) -> bool:
         self._stop_event.set()
         if self._capture_thread.is_alive():
@@ -80,9 +108,13 @@ class CameraBridgeNode(Node):
         if not self.device:
             self.get_logger().warning(f"{self.camera_name} 未配置设备路径，将保持离线占位。")
             return None
-        capture = cv2.VideoCapture(self.device)
+        backend = cv2.CAP_V4L2 if self.device.startswith("/dev/video") else cv2.CAP_ANY
+        capture = cv2.VideoCapture(self.device, backend)
         if not capture.isOpened():
-            self.get_logger().error(f"{self.camera_name} 无法打开摄像头设备: {self.device}")
+            backend_name = "CAP_V4L2" if backend == cv2.CAP_V4L2 else "CAP_ANY"
+            self.get_logger().error(
+                f"{self.camera_name} 无法打开摄像头设备: {self.device} backend={backend_name}"
+            )
             capture.release()
             return None
         capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
@@ -125,6 +157,12 @@ class CameraBridgeNode(Node):
                     break
                 try:
                     self.image_pub.publish(image_msg)
+                    info_msg = CameraInfo()
+                    info_msg.header = image_msg.header
+                    info_msg.height = image_msg.height
+                    info_msg.width = image_msg.width
+                    info_msg.distortion_model = "plumb_bob"
+                    self.camera_info_pub.publish(info_msg)
                 except Exception as exc:  # noqa: BLE001
                     self.get_logger().warning(f"{self.camera_name} 发布图像失败，准备退出采集循环: {exc}")
                     self._set_offline()
@@ -148,6 +186,9 @@ class CameraBridgeNode(Node):
             self._latest_frame = None
 
     def _publish_status(self) -> None:
+        public_host = self._resolve_public_host()
+        stream_url = f"http://{public_host}:{self.mjpeg_port}/stream"
+        snapshot_url = f"http://{public_host}:{self.mjpeg_port}/snapshot.jpg"
         status = String()
         with self._lock:
             status.data = json_dumps(
@@ -157,12 +198,28 @@ class CameraBridgeNode(Node):
                     "online": self._online,
                     "frame_id": self.frame_id,
                     "mjpeg_port": self.mjpeg_port,
-                    "stream_url": f"http://127.0.0.1:{self.mjpeg_port}/stream",
-                    "snapshot_url": f"http://127.0.0.1:{self.mjpeg_port}/snapshot.jpg",
+                    "stream_url": stream_url,
+                    "snapshot_url": snapshot_url,
+                    "image_topic": camera_image_topic(self.camera_name),
+                    "camera_info_topic": camera_info_topic(self.camera_name),
                     "updated_at": utc_now_text(),
                 }
             )
         self.status_pub.publish(status)
+
+        diag = DiagnosticArray()
+        diag.header.stamp = self.get_clock().now().to_msg()
+        item = DiagnosticStatus()
+        item.name = f"a20/camera/{self.camera_name}"
+        item.hardware_id = self.device or self.camera_name
+        item.level = DiagnosticStatus.OK if self._online else DiagnosticStatus.WARN
+        item.message = "online" if self._online else "offline"
+        item.values = [
+            KeyValue(key="stream_url", value=stream_url),
+            KeyValue(key="snapshot_url", value=snapshot_url),
+        ]
+        diag.status.append(item)
+        self.diagnostics_pub.publish(diag)
 
     def _start_http_server(self) -> None:
         node = self
@@ -242,7 +299,7 @@ class CameraBridgeNode(Node):
         thread = threading.Thread(target=self._http_server.serve_forever, daemon=True)
         thread.start()
         self.get_logger().info(
-            f"{self.camera_name} MJPEG 服务已启动: http://127.0.0.1:{self.mjpeg_port}/stream"
+            f"{self.camera_name} MJPEG 服务已启动: http://{self._resolve_public_host()}:{self.mjpeg_port}/stream"
         )
 
 

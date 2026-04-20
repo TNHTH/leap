@@ -1,5 +1,5 @@
 function emptyAnnotations(mapId = "") {
-  return { map_id: mapId, zones: [], waypoints: [], routes: [] };
+  return { map_id: mapId, zones: [], waypoints: [], fixed_cameras: [], routes: [] };
 }
 
 const state = {
@@ -9,8 +9,21 @@ const state = {
   selectedRouteId: "",
   drawingRect: null,
   teleopTimer: null,
+  gamepadTimer: null,
+  gamepadEnabled: false,
+  gamepadConnected: false,
+  gamepadIndex: null,
+  gamepadZeroSent: true,
+  gamepadPumpActive: false,
+  testReportSummary: null,
+  localLogEntries: [],
+  alarmVisible: false,
+  lastAlarmKey: "",
   localLogs: [],
 };
+
+const GAMEPAD_PUMP_BUTTON_INDEX = 5;
+const GAMEPAD_PUMP_BUTTON_LABEL = "RB";
 
 const dom = {};
 
@@ -41,6 +54,11 @@ function initDom() {
     "pumpState",
     "missionDetail",
     "batteryVoltage",
+    "sensorBattery",
+    "sensorPerception",
+    "sensorSafety",
+    "sensorWaterLevel",
+    "sensorTemperature",
     "odomPose",
     "odomTwist",
     "currentMapId",
@@ -74,6 +92,7 @@ function initDom() {
     "routeModeSelect",
     "routeWaypointSelect",
     "saveRouteButton",
+    "openPatrolModeButton",
     "routeSummary",
     "refreshButton",
     "stopButton",
@@ -88,6 +107,22 @@ function initDom() {
     "clearFireButton",
     "pumpOnButton",
     "pumpOffButton",
+    "gamepadStatus",
+    "gamepadHint",
+    "gamepadToggleButton",
+    "alarmOverlay",
+    "alarmTitle",
+    "alarmMessage",
+    "alarmTimestamp",
+    "alarmSource",
+    "alarmDismissButton",
+    "historyLevelFilter",
+    "historyKeywordInput",
+    "historyExportJsonButton",
+    "historyExportCsvButton",
+    "historyTableBody",
+    "testReportSummaryMeta",
+    "testReportSummaryBody",
     "logOutput",
   ].forEach((id) => {
     dom[id] = document.getElementById(id);
@@ -95,11 +130,19 @@ function initDom() {
 }
 
 function appendLog(message, level = "info") {
-  const stamp = new Date().toLocaleTimeString();
+  const now = new Date();
+  const stamp = now.toLocaleTimeString();
   const prefix = level === "error" ? "[ERROR]" : level === "warn" ? "[WARN]" : "[INFO]";
+  state.localLogEntries.unshift({
+    level,
+    message,
+    updated_at: now.toISOString(),
+  });
+  state.localLogEntries = state.localLogEntries.slice(0, 120);
   state.localLogs.unshift(`${prefix} [${stamp}] ${message}`);
   state.localLogs = state.localLogs.slice(0, 24);
   renderLogs();
+  renderHistoryTable();
 }
 
 function renderLogs() {
@@ -107,6 +150,163 @@ function renderLogs() {
     (item) => `[${item.updated_at}] ${item.level}: ${item.message}`
   );
   dom.logOutput.textContent = [...state.localLogs, ...remoteLogs].join("\n") || "暂无日志";
+}
+
+function historyEntries() {
+  const remoteLogs = state.status?.logs || [];
+  return [...state.localLogEntries, ...remoteLogs];
+}
+
+function filteredHistoryEntries() {
+  const level = dom.historyLevelFilter?.value || "all";
+  const keyword = (dom.historyKeywordInput?.value || "").trim().toLowerCase();
+  return historyEntries().filter((item) => {
+    const itemLevel = String(item.level || "info").toLowerCase();
+    const message = String(item.message || "");
+    if (level !== "all" && itemLevel !== level) {
+      return false;
+    }
+    if (keyword && !message.toLowerCase().includes(keyword)) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function renderHistoryTable() {
+  const rows = filteredHistoryEntries();
+  if (!rows.length) {
+    dom.historyTableBody.innerHTML = `
+      <tr>
+        <td colspan="3">没有匹配的日志记录</td>
+      </tr>
+    `;
+    return;
+  }
+  dom.historyTableBody.innerHTML = rows.map((item) => `
+    <tr>
+      <td>${item.updated_at || "-"}</td>
+      <td>${item.level || "-"}</td>
+      <td>${item.message || "-"}</td>
+    </tr>
+  `).join("");
+}
+
+function downloadText(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportHistoryJson() {
+  const rows = filteredHistoryEntries();
+  downloadText("broadcast-center-history.json", JSON.stringify(rows, null, 2), "application/json");
+}
+
+function exportHistoryCsv() {
+  const rows = filteredHistoryEntries();
+  const lines = ["updated_at,level,message"];
+  rows.forEach((item) => {
+    const values = [item.updated_at || "", item.level || "", item.message || ""].map((value) =>
+      `"${String(value).replaceAll('"', '""')}"`
+    );
+    lines.push(values.join(","));
+  });
+  downloadText("broadcast-center-history.csv", lines.join("\n"), "text/csv;charset=utf-8");
+}
+
+function playAlarmTone() {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return;
+  const ctx = new AudioCtx();
+  const oscillator = ctx.createOscillator();
+  const gain = ctx.createGain();
+  oscillator.type = "sawtooth";
+  oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+  gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.45);
+  oscillator.connect(gain);
+  gain.connect(ctx.destination);
+  oscillator.start();
+  oscillator.stop(ctx.currentTime + 0.48);
+  oscillator.onended = () => ctx.close().catch(() => {});
+}
+
+function hideAlarmOverlay() {
+  state.alarmVisible = false;
+  dom.alarmOverlay.hidden = true;
+}
+
+function maybeShowAlarm(mission, perception, safety) {
+  const activeFault = safety?.fault_code || mission?.fault_code || "";
+  const isAlarm = Boolean(mission?.fire_active || mission?.state === "FIRE_ALERT" || activeFault);
+  if (!isAlarm) {
+    hideAlarmOverlay();
+    return;
+  }
+
+  const source = perception?.source || mission?.state || "broadcast_center";
+  const timestamp = new Date().toLocaleString();
+  const key = `${mission?.state || ""}|${activeFault}|${perception?.confidence || ""}|${source}`;
+  dom.alarmTitle.textContent = mission?.fire_active || mission?.state === "FIRE_ALERT" ? "火情告警" : "安全告警";
+  dom.alarmMessage.textContent = mission?.detail || safety?.detail || "检测到告警，请立即确认。";
+  dom.alarmTimestamp.textContent = `时间：${timestamp}`;
+  dom.alarmSource.textContent = `来源：${source}`;
+  dom.alarmOverlay.hidden = false;
+  state.alarmVisible = true;
+  if (state.lastAlarmKey !== key) {
+    state.lastAlarmKey = key;
+    playAlarmTone();
+  }
+}
+
+function renderTestReportSummary() {
+  const summary = state.testReportSummary;
+  if (!summary?.available) {
+    dom.testReportSummaryMeta.textContent = summary?.error
+      ? `测试报告未就绪：${summary.error}`
+      : "测试报告尚未加载。";
+    dom.testReportSummaryBody.innerHTML = `
+      <tr>
+        <td colspan="5">暂无可展示的测试报告汇总数据</td>
+      </tr>
+    `;
+    return;
+  }
+
+  dom.testReportSummaryMeta.textContent = `来源：${summary.docx_path} · 汇总条目：${summary.row_count}`;
+  dom.testReportSummaryBody.innerHTML = (summary.rows || []).map((row) => `
+    <tr>
+      <td>${row.category || "-"}</td>
+      <td>${row.item || "-"}</td>
+      <td>${row.focus || "-"}</td>
+      <td>${row.record || "-"}</td>
+      <td>${row.source || "-"}</td>
+    </tr>
+  `).join("") || `
+    <tr>
+      <td colspan="5">测试报告存在，但没有抽取到适合展示的数据</td>
+    </tr>
+  `;
+}
+
+function renderSensorPanel(battery, perception, safety) {
+  dom.sensorBattery.textContent = Number.isFinite(battery?.voltage)
+    ? `${battery.voltage.toFixed(2)} V`
+    : "未收到";
+  dom.sensorPerception.textContent = perception?.active
+    ? `active · ${(perception.confidence || 0).toFixed(2)}`
+    : perception?.input_online
+      ? "idle"
+      : "离线/待接入";
+  dom.sensorSafety.textContent = safety?.fault_code
+    ? `${safety.fault_code}`
+    : safety?.detail || "ok";
 }
 
 function formatNumber(value, digits = 2) {
@@ -207,17 +407,29 @@ function renderCameraCard(prefix, camera, expected, age, fallbackPort, fallbackT
 
   const online = Boolean(camera?.online);
   const port = camera?.mjpeg_port || fallbackPort;
+  const allowLocalFallback = prefix === "ground";
+  const streamUrl = camera?.stream_url || (
+    allowLocalFallback ? `http://${window.location.hostname}:${port}/stream` : ""
+  );
 
   stateEl.textContent = !expected ? "disabled" : online ? "online" : "offline";
-  hintEl.textContent = `${resolveCameraHint(expected, online, age, fallbackText)} 端口 ${port}`;
+  if (expected && online && !streamUrl) {
+    hintEl.textContent = `已收到相机心跳，但后端没有提供可用 stream_url。端口 ${port}`;
+  } else {
+    hintEl.textContent = `${resolveCameraHint(expected, online, age, fallbackText)} 端口 ${port}`;
+  }
 
-  if (expected && online) {
-    imageEl.src = `http://${window.location.hostname}:${port}/stream?ts=${Date.now()}`;
+  if (expected && online && streamUrl) {
+    if (imageEl.dataset.streamUrl !== streamUrl) {
+      imageEl.src = streamUrl;
+      imageEl.dataset.streamUrl = streamUrl;
+    }
     imageEl.classList.add("online");
     placeholderEl.hidden = true;
   } else {
     imageEl.classList.remove("online");
     imageEl.removeAttribute("src");
+    delete imageEl.dataset.streamUrl;
     placeholderEl.hidden = false;
   }
 }
@@ -239,6 +451,7 @@ function refreshRouteSummary() {
   }
 
   const waypoints = state.annotations.waypoints || [];
+  const fixedCameras = state.annotations.fixed_cameras || [];
   const routes = state.annotations.routes || [];
   const lines = [`当前地图: ${state.currentMapId}`];
 
@@ -246,6 +459,11 @@ function refreshRouteSummary() {
     lines.push("还没有 waypoint。切到“航点”模式后，在地图上单击落点。");
   } else {
     lines.push(`已保存 waypoint: ${waypoints.length} 个`);
+  }
+  if (fixedCameras.length) {
+    lines.push(`固定摄像头位置: ${fixedCameras.map((item) => item.camera_id || item.name || item.id).join(", ")}`);
+  } else {
+    lines.push("还没有固定摄像头位置。切到“固定摄像头位置”后，在地图上单击放置。");
   }
 
   if (!routes.length) {
@@ -326,6 +544,20 @@ function renderMapOverlay() {
     ctx.fillText(waypoint.name, mapped.x + 8, mapped.y - 8);
   });
 
+  (state.annotations.fixed_cameras || []).forEach((camera) => {
+    const mapped = imageToCanvas(camera.pixel);
+    ctx.beginPath();
+    ctx.fillStyle = "#0f6e7a";
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.arc(mapped.x, mapped.y, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#10212f";
+    ctx.font = "12px 'IBM Plex Sans Condensed', sans-serif";
+    ctx.fillText(`CAM ${camera.camera_id || camera.name || ""}`, mapped.x + 10, mapped.y - 10);
+  });
+
   const route = (state.annotations.routes || []).find((item) => item.id === state.selectedRouteId);
   if (route) {
     ctx.beginPath();
@@ -369,7 +601,12 @@ function buildRectangleZone(start, end, kind) {
 
 function installMapInteractions() {
   dom.mapCanvas.addEventListener("pointerdown", (event) => {
-    if (!state.currentMapId || dom.toolSelect.value === "waypoint" || !dom.mapImage.naturalWidth) return;
+    if (
+      !state.currentMapId
+      || dom.toolSelect.value === "waypoint"
+      || dom.toolSelect.value === "fixed_camera"
+      || !dom.mapImage.naturalWidth
+    ) return;
     const rect = dom.mapCanvas.getBoundingClientRect();
     const originX = event.clientX - rect.left;
     const originY = event.clientY - rect.top;
@@ -402,6 +639,31 @@ function installMapInteractions() {
         yaw: 0.0,
       });
       refreshWaypointOptions();
+      refreshRouteSummary();
+      renderMapOverlay();
+      return;
+    }
+
+    if (dom.toolSelect.value === "fixed_camera") {
+      const pixel = canvasToImage(event.clientX, event.clientY);
+      const cameraId = window.prompt("固定摄像头 ID", "ground_camera");
+      if (!cameraId) return;
+      const fixedCameras = state.annotations.fixed_cameras || [];
+      const existingIndex = fixedCameras.findIndex((item) => item.camera_id === cameraId || item.id === cameraId);
+      const item = {
+        id: cameraId,
+        camera_id: cameraId,
+        name: cameraId,
+        pixel,
+        yaw: 0.0,
+        route_id: `camera:${cameraId}`,
+      };
+      if (existingIndex >= 0) {
+        fixedCameras[existingIndex] = item;
+      } else {
+        fixedCameras.push(item);
+      }
+      state.annotations.fixed_cameras = fixedCameras;
       refreshRouteSummary();
       renderMapOverlay();
       return;
@@ -491,6 +753,161 @@ function bindTeleopButton(button) {
   button.addEventListener("pointerleave", () => runAction(stop));
 }
 
+function scaleGamepadAxis(value, deadzone = 0.15) {
+  if (!Number.isFinite(value)) return 0;
+  if (Math.abs(value) < deadzone) return 0;
+  const normalized = (Math.abs(value) - deadzone) / (1 - deadzone);
+  return Math.sign(value) * normalized;
+}
+
+function getActiveGamepad() {
+  if (!navigator.getGamepads) return null;
+  const pads = navigator.getGamepads();
+  if (state.gamepadIndex !== null && pads[state.gamepadIndex]) {
+    return pads[state.gamepadIndex];
+  }
+  for (const pad of pads) {
+    if (pad) {
+      state.gamepadIndex = pad.index;
+      return pad;
+    }
+  }
+  return null;
+}
+
+function refreshGamepadStatus() {
+  const supported = Boolean(navigator.getGamepads);
+  const pad = getActiveGamepad();
+  state.gamepadConnected = Boolean(pad);
+
+  if (!supported) {
+    dom.gamepadStatus.textContent = "浏览器不支持";
+    dom.gamepadHint.textContent = "当前浏览器没有 Gamepad API，仍可使用页面按钮或独立手柄脚本。";
+    dom.gamepadToggleButton.disabled = true;
+    dom.gamepadToggleButton.textContent = "不可用";
+    return;
+  }
+
+  dom.gamepadToggleButton.textContent = state.gamepadEnabled ? "关闭手柄控制" : "启用手柄控制";
+  dom.gamepadToggleButton.disabled = !pad;
+
+  if (!pad) {
+    dom.gamepadStatus.textContent = "未连接";
+    dom.gamepadHint.textContent = "插入手柄并保持当前页面激活，然后点击“启用手柄控制”。";
+    return;
+  }
+
+  dom.gamepadStatus.textContent = `${state.gamepadEnabled ? "接管中" : "已连接"} · ${pad.id}`;
+  dom.gamepadHint.textContent = `默认使用左摇杆控制前后/转向，按住 ${GAMEPAD_PUMP_BUTTON_LABEL} 持续抽水，松开即停。`;
+}
+
+async function stopGamepadTeleop(sendStop = true) {
+  clearInterval(state.gamepadTimer);
+  state.gamepadTimer = null;
+  state.gamepadEnabled = false;
+  if (state.gamepadPumpActive) {
+    await apiPost("/api/pump", { enabled: false });
+    state.gamepadPumpActive = false;
+  }
+  refreshGamepadStatus();
+  if (sendStop) {
+    await apiPost("/api/stop");
+  }
+  state.gamepadZeroSent = true;
+}
+
+async function syncGamepadPump(pressed) {
+  const active = Boolean(pressed);
+  if (active === state.gamepadPumpActive) {
+    return;
+  }
+
+  if (active) {
+    await apiPost("/api/pump", { enabled: true, authorized_test: true });
+    appendLog(`手柄按钮 ${GAMEPAD_PUMP_BUTTON_LABEL} 按下，开始持续抽水`);
+  } else {
+    await apiPost("/api/pump", { enabled: false });
+    appendLog(`手柄按钮 ${GAMEPAD_PUMP_BUTTON_LABEL} 松开，停止抽水`);
+  }
+  state.gamepadPumpActive = active;
+}
+
+async function gamepadTick() {
+  const pad = getActiveGamepad();
+  refreshGamepadStatus();
+  if (!state.gamepadEnabled || !pad) {
+    if (state.gamepadPumpActive) {
+      await syncGamepadPump(false);
+    }
+    if (!state.gamepadZeroSent) {
+      await apiPost("/api/stop");
+      state.gamepadZeroSent = true;
+    }
+    return;
+  }
+
+  const pumpPressed = Boolean(pad.buttons?.[GAMEPAD_PUMP_BUTTON_INDEX]?.pressed);
+  await syncGamepadPump(pumpPressed);
+
+  const vx = Number((-scaleGamepadAxis(pad.axes?.[1]) * 0.25).toFixed(3));
+  const vz = Number((-scaleGamepadAxis(pad.axes?.[0]) * 0.8).toFixed(3));
+
+  if (Math.abs(vx) < 0.01 && Math.abs(vz) < 0.01) {
+    if (!state.gamepadZeroSent) {
+      await apiPost("/api/stop");
+      state.gamepadZeroSent = true;
+    }
+    return;
+  }
+
+  state.gamepadZeroSent = false;
+  await apiPost("/api/cmd_vel", { vx, vz });
+}
+
+function installGamepadTeleop() {
+  refreshGamepadStatus();
+
+  window.addEventListener("gamepadconnected", (event) => {
+    state.gamepadIndex = event.gamepad.index;
+    refreshGamepadStatus();
+    appendLog(`手柄已连接: ${event.gamepad.id}`);
+  });
+
+  window.addEventListener("gamepaddisconnected", async (event) => {
+    if (state.gamepadIndex === event.gamepad.index) {
+      state.gamepadIndex = null;
+    }
+    if (state.gamepadEnabled) {
+      await stopGamepadTeleop(true);
+    } else {
+      refreshGamepadStatus();
+    }
+    appendLog(`手柄已断开: ${event.gamepad.id}`, "warn");
+  });
+
+  dom.gamepadToggleButton.addEventListener("click", () =>
+    runAction(async () => {
+      if (state.gamepadEnabled) {
+        await stopGamepadTeleop(true);
+        appendLog("已关闭手柄控制");
+        return;
+      }
+      const pad = getActiveGamepad();
+      if (!pad) {
+        throw new Error("没有检测到可用手柄，请先连接手柄。");
+      }
+      state.gamepadEnabled = true;
+      state.gamepadZeroSent = true;
+      refreshGamepadStatus();
+      clearInterval(state.gamepadTimer);
+      state.gamepadTimer = setInterval(() => {
+        gamepadTick().catch((error) => appendLog(error.message, "error"));
+      }, 120);
+      appendLog(`已启用手柄控制: ${pad.id}`);
+    })
+  );
+}
+
 function refreshStatusView() {
   if (!state.status) return;
 
@@ -498,6 +915,8 @@ function refreshStatusView() {
   const battery = state.status.battery || {};
   const odom = state.status.odom || {};
   const cameras = state.status.cameras || {};
+  const perception = state.status.perception || {};
+  const safety = state.status.safety || {};
   const system = state.status.system || {};
   const signals = system.signals || {};
 
@@ -515,6 +934,15 @@ function refreshStatusView() {
   dom.currentRouteId.textContent = mission.route_id || state.selectedRouteId || "-";
 
   dom.panelMode.textContent = system.panel_mode || "full_stack";
+  const statusOnly = (system.panel_mode || "full_stack") === "status_only";
+  const routePanel = document.querySelector(".route-panel");
+  const mapPanel = document.querySelector(".map-panel");
+  if (routePanel) {
+    routePanel.hidden = statusOnly;
+  }
+  if (mapPanel) {
+    mapPanel.hidden = statusOnly;
+  }
   dom.hostName.textContent = system.hostname || "-";
   dom.hostIp.textContent = (system.ipv4 || []).join(" / ") || "未解析到 IP";
   dom.hostUptime.textContent = formatDuration(system.uptime_sec);
@@ -527,6 +955,8 @@ function refreshStatusView() {
   dom.diskUsage.textContent = system.disk
     ? `${formatPercent(system.disk.used_percent)} · ${formatGiB(system.disk.free_bytes)} 可用 / ${formatGiB(system.disk.total_bytes)}`
     : "-";
+  renderSensorPanel(battery, perception, safety);
+  maybeShowAlarm(mission, perception, safety);
 
   dom.odomSignal.textContent = signals.odom_online
     ? `在线 · ${formatAge(signals.odom_age_sec)}`
@@ -568,6 +998,7 @@ function refreshStatusView() {
   syncMapOptions();
   refreshRouteSummary();
   renderLogs();
+  renderHistoryTable();
   updateActionAvailability();
 }
 
@@ -582,6 +1013,11 @@ async function refreshStatus() {
   if (!state.currentMapId) {
     clearMapStage("当前还没有可用地图", "先进入建图态并保存地图，然后这里会自动出现底图与标注能力。");
   }
+}
+
+async function refreshTestReportSummary() {
+  state.testReportSummary = await apiGet("/api/test-report-summary");
+  renderTestReportSummary();
 }
 
 function updateActionAvailability() {
@@ -634,7 +1070,10 @@ async function saveAnnotations() {
 }
 
 function installActions() {
-  dom.refreshButton.addEventListener("click", () => runAction(refreshStatus, "状态已刷新"));
+  dom.refreshButton.addEventListener("click", () => runAction(async () => {
+    await refreshStatus();
+    await refreshTestReportSummary();
+  }, "状态已刷新"));
   dom.mapSelect.addEventListener("change", () => loadMap(dom.mapSelect.value));
   dom.loadMapButton.addEventListener("click", () => runAction(() => loadMap(dom.mapSelect.value), "地图已载入"));
   dom.saveAnnotationsButton.addEventListener("click", () => runAction(saveAnnotations));
@@ -648,11 +1087,33 @@ function installActions() {
     refreshRouteSummary();
     renderMapOverlay();
   });
+  dom.historyLevelFilter.addEventListener("change", renderHistoryTable);
+  dom.historyKeywordInput.addEventListener("input", renderHistoryTable);
+  dom.historyExportJsonButton.addEventListener("click", exportHistoryJson);
+  dom.historyExportCsvButton.addEventListener("click", exportHistoryCsv);
+  dom.alarmDismissButton.addEventListener("click", hideAlarmOverlay);
+  dom.openPatrolModeButton.addEventListener("click", () =>
+    runAction(
+      async () => {
+        const runtimeResult = await apiPost("/api/runtime/patrol/ensure_remote", {});
+        appendLog(`树莓派巡航模式确认完成: ${runtimeResult.stdout || "ok"}`);
+      },
+      "已打开巡航/避障模式"
+    )
+  );
 
   dom.startMappingButton.addEventListener("click", () =>
     runAction(
-      () => sendMission("enter_mapping", { detail: "网页进入建图态" }),
-      "已请求进入建图态"
+      async () => {
+        const runtimeResult = await apiPost("/api/runtime/mapping/start", {});
+        appendLog(
+          runtimeResult.already_running
+            ? "建图工作台已在运行，复用当前 RViz/SLAM 进程。"
+            : `建图工作台已启动 pid=${runtimeResult.pid}`
+        );
+        return await sendMission("enter_mapping", { detail: "网页进入建图态" });
+      },
+      "已请求进入建图态，并拉起 RViz 建图工作台"
     )
   );
   dom.enterAnnotationButton.addEventListener("click", () =>
@@ -674,25 +1135,31 @@ function installActions() {
   );
   dom.startSinglePatrolButton.addEventListener("click", () =>
     runAction(
-      () =>
-        sendMission("start_patrol", {
+      async () => {
+        const runtimeResult = await apiPost("/api/runtime/patrol/ensure_remote", {});
+        appendLog(`树莓派巡航模式确认完成: ${runtimeResult.stdout || "ok"}`);
+        return await sendMission("start_patrol", {
           map_id: state.currentMapId,
           route_id: state.selectedRouteId,
           mode: "single_run",
           detail: "网页启动单次巡航",
-        }),
+        });
+      },
       "已请求启动单次巡航"
     )
   );
   dom.startLoopPatrolButton.addEventListener("click", () =>
     runAction(
-      () =>
-        sendMission("start_patrol", {
+      async () => {
+        const runtimeResult = await apiPost("/api/runtime/patrol/ensure_remote", {});
+        appendLog(`树莓派巡航模式确认完成: ${runtimeResult.stdout || "ok"}`);
+        return await sendMission("start_patrol", {
           map_id: state.currentMapId,
           route_id: state.selectedRouteId,
           mode: "loop",
           detail: "网页启动循环巡航",
-        }),
+        });
+      },
       "已请求启动循环巡航"
     )
   );
@@ -742,7 +1209,10 @@ function installActions() {
   );
 
   dom.pumpOnButton.addEventListener("click", () =>
-    runAction(() => apiPost("/api/pump", { enabled: true }), "已发送开泵命令")
+    runAction(
+      () => apiPost("/api/pump", { enabled: true, authorized_test: true }),
+      "已发送授权开泵命令"
+    )
   );
   dom.pumpOffButton.addEventListener("click", () =>
     runAction(() => apiPost("/api/pump", { enabled: false }), "已发送停泵命令")
@@ -758,7 +1228,9 @@ async function boot() {
   initDom();
   installMapInteractions();
   installActions();
+  installGamepadTeleop();
   await refreshStatus();
+  await refreshTestReportSummary();
   updateActionAvailability();
   window.addEventListener("resize", () => {
     resizeCanvas();

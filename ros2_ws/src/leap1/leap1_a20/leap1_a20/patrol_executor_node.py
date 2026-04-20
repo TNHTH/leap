@@ -92,6 +92,15 @@ class PatrolExecutorNode(Node):
         annotations = load_annotations(self.runtime_root, map_id)
         meta = load_map_meta(self.runtime_root, map_id)
 
+        waypoint_map: Dict[str, Dict] = {
+            str(item.get("id")): item for item in annotations.get("waypoints", [])
+        }
+
+        camera_pose = self._build_fixed_camera_pose(annotations, map_id, route_id)
+        if camera_pose is not None:
+            self._active_route_id = route_id
+            return [camera_pose]
+
         routes = annotations.get("routes", [])
         route = None
         for item in routes:
@@ -101,11 +110,8 @@ class PatrolExecutorNode(Node):
         if route is None and routes:
             route = routes[0]
         if route is None:
-            raise RuntimeError("当前地图还没有可执行的 route。")
+            raise RuntimeError("当前地图还没有可执行的 route 或 fixed_camera。")
 
-        waypoint_map: Dict[str, Dict] = {
-            str(item.get("id")): item for item in annotations.get("waypoints", [])
-        }
         poses: List[PoseStamped] = []
         for waypoint_id in route.get("waypoint_ids", []):
             waypoint = waypoint_map.get(str(waypoint_id))
@@ -131,6 +137,42 @@ class PatrolExecutorNode(Node):
 
         self._active_route_id = str(route.get("id", route_id))
         return poses
+
+    def _build_fixed_camera_pose(self, annotations: Dict, map_id: str, route_id: str) -> PoseStamped | None:
+        lookup = route_id.removeprefix("camera:")
+        if not lookup:
+            return None
+
+        fixed_camera = None
+        for item in annotations.get("fixed_cameras", []):
+            candidates = {
+                str(item.get("id", "")),
+                str(item.get("name", "")),
+                str(item.get("camera_id", "")),
+                f"camera:{item.get('camera_id', '')}",
+                f"camera:{item.get('id', '')}",
+            }
+            if route_id in candidates or lookup in candidates:
+                fixed_camera = item
+                break
+        if fixed_camera is None:
+            return None
+
+        meta = load_map_meta(self.runtime_root, map_id)
+        pixel = fixed_camera.get("pixel", {})
+        world_x, world_y = pixel_to_world(meta, float(pixel["x"]), float(pixel["y"]))
+        pose = PoseStamped()
+        pose.header.frame_id = "map"
+        pose.header.stamp = self.get_clock().now().to_msg()
+        pose.pose.position.x = world_x
+        pose.pose.position.y = world_y
+        pose.pose.position.z = 0.0
+        quat = quaternion_from_yaw(float(fixed_camera.get("yaw", 0.0)))
+        pose.pose.orientation.x = quat["x"]
+        pose.pose.orientation.y = quat["y"]
+        pose.pose.orientation.z = quat["z"]
+        pose.pose.orientation.w = quat["w"]
+        return pose
 
     def _start_patrol(self, map_id: str, route_id: str, loop_mode: bool) -> None:
         self._cancel_goal("收到新的巡航任务，先清理旧目标")

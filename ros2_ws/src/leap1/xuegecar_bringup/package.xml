@@ -24,13 +24,17 @@
   <exec_depend>leap1_a20_interfaces</exec_depend>
   <exec_depend>xuegecar_gazebo</exec_depend>
   <exec_depend>ydlidar_ros2_driver</exec_depend>
+  <exec_depend>ldlidar_stl_ros2</exec_depend>
   <exec_depend>slam_gmapping</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
   <exec_depend>gazebo_ros</exec_depend>
   <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>nav2_collision_monitor</exec_depend>
   <exec_depend>rviz2</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

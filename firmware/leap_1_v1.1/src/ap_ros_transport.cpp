@@ -125,8 +125,8 @@ bool setup_transport() {
         display.updateTransMode("udp_client");
     }
     if (config.microros_transport_mode() == CONFIG_TRANSPORT_MODE_SERIAL) {
-        SerialBT.begin(config.board_name());
-        log_set_target(SerialBT);
+        // Serial 模式下保留 UART0 给 micro-ROS 与调试日志，避免额外启用蓝牙耗尽 WiFi 初始化内存。
+        log_set_target(Serial);
         if (config.microros_serial_id() == 2) {
             setup_success = microros_setup_transport_serial_(Serial2);
             display.updateTransMode("serial2");
