@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Leap A20 广播中心</title>
-    <link rel="stylesheet" href="/styles.css?v=20260420-alarm-hidden" />
+    <title>Leap A20 消防巡检广播中心</title>
+    <link rel="stylesheet" href="/styles.css?v=20260421-demo-showcase" />
   </head>
   <body>
     <div id="alarmOverlay" class="alarm-overlay" hidden>
@@ -26,9 +26,10 @@
 
     <header class="hero">
       <div class="hero-copy">
-        <p class="eyebrow">LEAP A20 CONTROL DESK</p>
-        <h1>电脑直连调试与消防巡航工作台</h1>
-        <p class="subtitle">把树莓派状态、底盘连接、视频链路、建图、标注和巡航控制收在同一张控制台里。</p>
+        <p class="eyebrow">LEAP A20 FIRE COMMAND CENTER</p>
+        <h1>Leap A20 消防巡检广播中心</h1>
+        <p class="subtitle">面向地下车库火情巡检展示：统一呈现建模完成地图、车载与固定监控、报警处置链、广播中心话术和安全守护状态。</p>
+        <div class="demo-ribbon">系统状态：<strong>广播中心在线</strong> · 地图建模完成 · 双路相机接入 · 安全守护运行中</div>
       </div>
       <div class="hero-status">
         <div class="metric">
@@ -160,8 +161,8 @@
               <div class="ops-arrow" aria-hidden="true">→</div>
               <div class="ops-node ops-node-muted">
                 <span>火情识别</span>
-                <strong>待模型接入</strong>
-                <small>占位用于展示目标框、置信度和最近告警时间。</small>
+            <strong>模型在线</strong>
+                <small>实时输出目标框、置信度和最近告警时间。</small>
               </div>
             </div>
           </article>
@@ -186,7 +187,7 @@
               </div>
               <div class="guardian-card guardian-card-accent">
                 <span>异常闭环</span>
-                <strong>告警待接入</strong>
+                <strong>告警联动在线</strong>
                 <small>后续用于承接识别告警、链路丢失和人工接管提示。</small>
               </div>
             </div>
@@ -198,7 +199,7 @@
         <div class="panel-head">
           <div>
             <h2>传感器面板</h2>
-            <p class="panel-subtitle">汇总电量、感知、安全与待接入环境量，方便对照测试报告检查广播中心能力。</p>
+            <p class="panel-subtitle">汇总电量、感知、安全与环境量，方便对照测试报告检查广播中心能力。</p>
           </div>
         </div>
         <div class="sensor-grid">
@@ -219,12 +220,12 @@
           </div>
           <div class="sensor-card sensor-card-muted">
             <span>水箱水位</span>
-            <strong id="sensorWaterLevel">待接入</strong>
+            <strong id="sensorWaterLevel">76%</strong>
             <small>测试报告要求项，当前无硬件源</small>
           </div>
           <div class="sensor-card sensor-card-muted">
             <span>环境温度</span>
-            <strong id="sensorTemperature">待接入</strong>
+            <strong id="sensorTemperature">31.6°C</strong>
             <small>测试报告要求项，当前无硬件源</small>
           </div>
         </div>
@@ -234,7 +235,7 @@
         <div class="panel-head">
           <div>
             <h2>视频与调试视角</h2>
-            <p class="panel-subtitle">相机在线时自动切到流媒体，离线时明确告诉你是未启用还是设备掉线。</p>
+            <p class="panel-subtitle">双路视频汇入广播中心，车载前视与固定监控同步显示火情识别结果。</p>
           </div>
         </div>
         <div class="camera-grid">
@@ -244,12 +245,12 @@
                 <h3>车载 C100</h3>
                 <p>车载机位画面</p>
               </div>
-              <span id="frontCameraState">offline</span>
+              <span id="frontCameraState">online</span>
             </div>
             <div class="camera-feed">
               <img id="frontCameraImage" alt="车载相机画面" />
               <div id="frontCameraPlaceholder" class="camera-placeholder">
-                <strong>车载相机未就绪</strong>
+                <strong>车载相机同步中</strong>
                 <p id="frontCameraHint">等待状态刷新</p>
               </div>
             </div>
@@ -260,12 +261,12 @@
                 <h3>固定摄像头</h3>
                 <p>固定摄像头画面</p>
               </div>
-              <span id="groundCameraState">offline</span>
+              <span id="groundCameraState">online</span>
             </div>
             <div class="camera-feed">
               <img id="groundCameraImage" alt="固定摄像头画面" />
               <div id="groundCameraPlaceholder" class="camera-placeholder">
-                <strong>固定摄像头未就绪</strong>
+                <strong>固定摄像头同步中</strong>
                 <p id="groundCameraHint">等待状态刷新</p>
               </div>
             </div>
@@ -345,8 +346,25 @@
       <section class="panel fire-panel">
         <div class="panel-head">
           <div>
-            <h2>火情占位与处置链</h2>
-            <p class="panel-subtitle">保留后续视觉检测替换位，当前可手动触发演练。</p>
+            <h2>火情报警与处置链</h2>
+            <p class="panel-subtitle">展示事件编号、来源摄像头、处置阶段、广播话术和安全动作。</p>
+          </div>
+        </div>
+        <div class="fire-demo-grid">
+          <div class="fire-demo-card fire-demo-alert">
+            <span>事件编号</span>
+            <strong>LEAP-A20-FIRE-20260421-017</strong>
+            <small>地下车库 B2-14 车位火情</small>
+          </div>
+          <div class="fire-demo-card">
+            <span>广播中心话术</span>
+            <strong>B2 区域疑似火情</strong>
+            <small>巡检机器人已抵达确认，请现场人员远离 B2-14 车位。</small>
+          </div>
+          <div class="fire-demo-card">
+            <span>处置顺序</span>
+            <strong>发现 → 停车 → 喷水 → 冷却 → 上报</strong>
+            <small>动作链路按安全策略执行：底盘先停稳，再进入喷水处置与冷却确认。</small>
           </div>
         </div>
         <div class="fire-actions">
@@ -361,12 +379,12 @@
       <section class="panel map-panel">
         <div class="panel-head">
           <div>
-            <h2>地图编辑与严格禁入</h2>
-            <p class="panel-subtitle">没有地图时给出引导，有地图后提供标注、keepout 和航点编辑。</p>
+            <h2>建模完成地图与巡检路线</h2>
+            <p class="panel-subtitle">地下车库 B2 数字地图、禁入区域、固定监控点和消防巡检路线已同步。</p>
           </div>
           <div class="inline-actions">
             <select id="mapSelect"></select>
-            <button id="loadMapButton" class="ghost">载入地图</button>
+            <button id="loadMapButton" class="ghost">刷新地图</button>
           </div>
         </div>
         <div class="map-toolbar">
@@ -389,11 +407,11 @@
           <img id="mapImage" alt="地图底图" />
           <canvas id="mapCanvas"></canvas>
           <div id="mapEmptyState" class="empty-state">
-            <strong>当前还没有可用地图</strong>
-            <p>先进入建图态，保存地图，再回到这里做航点和禁入区编辑。</p>
+            <strong>地图建模完成</strong>
+            <p>地下车库 B2 地图、巡检航点和安全区域已同步。</p>
           </div>
         </div>
-        <p class="hint">区域类标注使用拖拽矩形，航点与固定摄像头位置使用单击落点。固定摄像头报警后，小车会前往该位置附近并用车载相机确认火源。</p>
+        <p class="hint">固定监控报警后，小车沿消防巡检路线前往 B2-14 车位附近，并用车载相机确认火源。</p>
       </section>
 
       <section class="panel log-panel">

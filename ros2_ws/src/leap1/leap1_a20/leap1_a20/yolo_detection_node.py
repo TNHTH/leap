@@ -4,8 +4,6 @@ import os
 from pathlib import Path
 from typing import Dict
 
-import cv2
-import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
@@ -13,6 +11,7 @@ from sensor_msgs.msg import Image
 from leap1_a20_interfaces.msg import PerceptionDetection
 
 from .common import PERCEPTION_DETECTION_TOPIC, camera_image_topic, now_stamp
+from .image_tools import image_to_bgr
 
 
 def _split_csv(text: str) -> list[str]:
@@ -141,38 +140,7 @@ class YoloDetectionNode(Node):
         self.publisher.publish(detection)
 
     def _image_to_bgr(self, msg: Image) -> np.ndarray | None:
-        encoding = msg.encoding.lower()
-        channels = {"mono8": 1, "8uc1": 1, "bgr8": 3, "rgb8": 3, "bgra8": 4, "rgba8": 4}.get(encoding, 0)
-        if channels == 0:
-            self.get_logger().warning(f"暂不支持的图像编码: {msg.encoding}")
-            return None
-
-        row_bytes = msg.width * channels
-        if msg.step < row_bytes:
-            self.get_logger().warning(f"图像步长异常 width={msg.width} channels={channels} step={msg.step}")
-            return None
-
-        required = msg.step * msg.height
-        buffer = np.frombuffer(msg.data, dtype=np.uint8)
-        if buffer.size < required:
-            self.get_logger().warning(f"图像数据长度不足 expected={required} actual={buffer.size}")
-            return None
-
-        matrix = buffer[:required].reshape((msg.height, msg.step))
-        pixels = matrix[:, :row_bytes]
-        if channels == 1:
-            return cv2.cvtColor(pixels.reshape((msg.height, msg.width)), cv2.COLOR_GRAY2BGR)
-
-        image = np.ascontiguousarray(pixels.reshape((msg.height, msg.width, channels)))
-        if encoding == "bgr8":
-            return image
-        if encoding == "rgb8":
-            return cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-        if encoding == "bgra8":
-            return cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
-        if encoding == "rgba8":
-            return cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
-        return None
+        return image_to_bgr(msg, logger=self.get_logger())
 
     def _build_detection(self, image_msg: Image, result) -> PerceptionDetection:
         best = None

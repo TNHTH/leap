@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-import mimetypes
 import os
-import shutil
 import socket
 import subprocess
 import threading
 import time
 from collections import deque
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict
-from urllib.parse import urlparse
 
 import rclpy
 from geometry_msgs.msg import Twist
@@ -37,23 +32,18 @@ from .common import (
     parse_json,
     utc_now_text,
 )
+from .broadcast_center_http import BroadcastCenterHttpServer
+from .broadcast_center_system import SystemSnapshotBuilder
 from .map_tools import (
     draw_keepout_mask,
-    keepout_png_bytes,
     list_maps,
     load_annotations,
     map_dir,
-    map_png_bytes,
     save_annotations,
     sanitize_map_id,
 )
 from .paths import ensure_runtime_layout, package_share, repo_root
 from .test_report_parser import build_broadcast_center_summary
-
-
-class _ThreadingHTTPServer(ThreadingHTTPServer):
-    daemon_threads = True
-    allow_reuse_address = True
 
 
 class BroadcastCenterServer(Node):
@@ -88,6 +78,13 @@ class BroadcastCenterServer(Node):
         self.web_root = package_share() / "web"
         self._boot_time = time.time()
         self._hostname = socket.gethostname()
+        self._system_snapshot = SystemSnapshotBuilder(
+            runtime_root=self.runtime_root,
+            hostname=self._hostname,
+            boot_time=self._boot_time,
+            expected_vehicle_camera=self.expected_vehicle_camera,
+            expected_ground_camera=self.expected_ground_camera,
+        )
 
         self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
         self.pump_pub = self.create_publisher(Bool, "/pump_cmd", 10)
@@ -131,115 +128,21 @@ class BroadcastCenterServer(Node):
         self._last_pump_keepalive = 0.0
         self._background_processes: Dict[str, subprocess.Popen[Any]] = {}
         self._background_process_logs: Dict[str, Path] = {}
-        self._http_server: _ThreadingHTTPServer | None = None
+        self._http_server: BroadcastCenterHttpServer | None = None
 
         self.create_timer(1.0 / max(self.teleop_hz, 1.0), self._teleop_tick)
-        self._start_http_server()
+        self._http_server = BroadcastCenterHttpServer(self)
+        self._http_server.start()
         self._append_log("info", "广播中心已启动")
 
-    def _read_meminfo(self) -> Dict[str, int]:
-        result: Dict[str, int] = {}
-        try:
-            for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
-                if ":" not in line:
-                    continue
-                key, value = line.split(":", 1)
-                number = value.strip().split()[0]
-                result[key] = int(number)
-        except (FileNotFoundError, ValueError):
-            return {}
-        return result
-
-    def _resolve_ipv4_addresses(self) -> list[str]:
-        addresses: list[str] = []
-        try:
-            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            try:
-                probe.connect(("8.8.8.8", 80))
-                candidate = probe.getsockname()[0]
-                if candidate and not candidate.startswith("127."):
-                    addresses.append(candidate)
-            finally:
-                probe.close()
-        except OSError:
-            pass
-
-        try:
-            for _, _, _, _, sockaddr in socket.getaddrinfo(self._hostname, None, socket.AF_INET):
-                candidate = sockaddr[0]
-                if candidate and not candidate.startswith("127.") and candidate not in addresses:
-                    addresses.append(candidate)
-        except socket.gaierror:
-            pass
-        return addresses
-
     def _system_payload(self) -> Dict[str, Any]:
-        meminfo = self._read_meminfo()
-        memory_total_kib = int(meminfo.get("MemTotal", 0))
-        memory_available_kib = int(meminfo.get("MemAvailable", 0))
-        memory_used_kib = max(memory_total_kib - memory_available_kib, 0)
-        memory_used_percent = (
-            round((memory_used_kib / memory_total_kib) * 100.0, 1)
-            if memory_total_kib
-            else 0.0
+        return self._system_snapshot.build(
+            panel_mode=self.panel_mode,
+            cameras=self._cameras,
+            camera_heartbeats=self._camera_heartbeats,
+            last_odom_monotonic=self._last_odom_monotonic,
+            perception_heartbeat=self._perception_heartbeat,
         )
-
-        disk_usage = shutil.disk_usage(self.runtime_root)
-        disk_used = disk_usage.total - disk_usage.free
-        disk_used_percent = round((disk_used / max(disk_usage.total, 1)) * 100.0, 1)
-
-        odom_age_sec = None
-        if self._last_odom_monotonic is not None:
-            odom_age_sec = max(0.0, time.monotonic() - self._last_odom_monotonic)
-
-        vehicle_camera_age_sec = None
-        if "vehicle_camera" in self._camera_heartbeats:
-            vehicle_camera_age_sec = max(0.0, time.monotonic() - self._camera_heartbeats["vehicle_camera"])
-        ground_camera_age_sec = None
-        if "ground_camera" in self._camera_heartbeats:
-            ground_camera_age_sec = max(0.0, time.monotonic() - self._camera_heartbeats["ground_camera"])
-        perception_age_sec = None
-        if self._perception_heartbeat is not None:
-            perception_age_sec = max(0.0, time.monotonic() - self._perception_heartbeat)
-
-        uptime_sec = 0
-        try:
-            uptime_sec = int(float(Path("/proc/uptime").read_text(encoding="utf-8").split()[0]))
-        except (FileNotFoundError, ValueError, IndexError):
-            uptime_sec = max(0, int(time.time() - self._boot_time))
-
-        return {
-            "panel_mode": self.panel_mode,
-            "hostname": self._hostname,
-            "ipv4": self._resolve_ipv4_addresses(),
-            "uptime_sec": uptime_sec,
-            "loadavg": [round(value, 2) for value in os.getloadavg()],
-            "cpu_count": os.cpu_count() or 0,
-            "memory": {
-                "total_kib": memory_total_kib,
-                "available_kib": memory_available_kib,
-                "used_percent": memory_used_percent,
-            },
-            "disk": {
-                "total_bytes": disk_usage.total,
-                "free_bytes": disk_usage.free,
-                "used_percent": disk_used_percent,
-            },
-            "signals": {
-                "odom_online": odom_age_sec is not None and odom_age_sec <= 1.5,
-                "odom_age_sec": odom_age_sec,
-                "vehicle_camera_expected": self.expected_vehicle_camera,
-                "vehicle_camera_online": bool(self._cameras.get("vehicle_camera", {}).get("online", False)),
-                "vehicle_camera_age_sec": vehicle_camera_age_sec,
-                "ground_camera_expected": self.expected_ground_camera,
-                "ground_camera_online": bool(self._cameras.get("ground_camera", {}).get("online", False)),
-                "ground_camera_age_sec": ground_camera_age_sec,
-                "perception_online": perception_age_sec is not None and perception_age_sec <= 1.5,
-                "perception_age_sec": perception_age_sec,
-            },
-            "runtime_root": str(self.runtime_root),
-            "updated_at": utc_now_text(),
-        }
 
     def destroy_node(self) -> bool:
         if rclpy.ok():
@@ -250,8 +153,7 @@ class BroadcastCenterServer(Node):
             except Exception as exc:  # noqa: BLE001
                 self.get_logger().debug(f"广播中心关闭时停止命令发布失败: {exc}")
         if self._http_server is not None:
-            self._http_server.shutdown()
-            self._http_server.server_close()
+            self._http_server.stop()
         return super().destroy_node()
 
     def _append_log(self, level: str, message: str) -> None:
@@ -414,6 +316,39 @@ class BroadcastCenterServer(Node):
         self._append_log("warning", f"火情命令: active={payload.get('active')}")
         return {"published": True, "payload": payload}
 
+    def _handle_pump_request(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        enabled = bool(payload.get("enabled", False))
+        authorized_test = bool(payload.get("authorized_test", False))
+        current_state = str(self._mission.get("state", "BOOT"))
+
+        if enabled and current_state not in {"STOPPING", "SPRAYING"} and not authorized_test:
+            return {
+                "ok": False,
+                "error": "当前状态不允许直接开泵，请使用授权测试模式",
+            }
+
+        if enabled and authorized_test:
+            self._start_authorized_pump_keepalive()
+        else:
+            self._manual_pump_enabled = False
+            self._publish_pump(enabled)
+
+        self._append_log("info", f"泵控制 -> {enabled} authorized_test={authorized_test}")
+        return {"enabled": enabled, "authorized_test": authorized_test}
+
+    def _start_authorized_pump_keepalive(self) -> None:
+        self._manual_pump_enabled = True
+        self._last_pump_keepalive = 0.0
+        self._publish_mission_command(
+            {
+                "command": "authorized_pump_test",
+                "duration_sec": max(2.0, self.pump_keepalive_sec * 3.0),
+                "detail": "网页授权持续抽水",
+            }
+        )
+        self._publish_pump(True)
+        self._last_pump_keepalive = time.monotonic()
+
     def _panel_is_status_only(self) -> bool:
         return self.panel_mode == "status_only"
 
@@ -565,168 +500,6 @@ class BroadcastCenterServer(Node):
         result = self._run_remote_command(remote_command, timeout_sec=45.0)
         self._append_log("info", f"树莓派巡航模式已确认: {result['stdout'] or 'ok'}")
         return result
-
-    def _serve_file(self, path: Path, handler: BaseHTTPRequestHandler) -> None:
-        if not path.exists():
-            handler.send_error(HTTPStatus.NOT_FOUND, "file not found")
-            return
-        mime_type, _ = mimetypes.guess_type(path.name)
-        content_type = mime_type or "application/octet-stream"
-        data = path.read_bytes()
-        handler.send_response(HTTPStatus.OK)
-        handler.send_header("Content-Type", content_type)
-        handler.send_header("Content-Length", str(len(data)))
-        handler.end_headers()
-        handler.wfile.write(data)
-
-    def _serve_generated_png(self, generator, map_id: str, handler: BaseHTTPRequestHandler) -> None:
-        try:
-            data = generator(self.runtime_root, map_id)
-        except FileNotFoundError:
-            handler.send_error(HTTPStatus.NOT_FOUND, "map asset not found")
-            return
-        except Exception as exc:  # noqa: BLE001
-            self.get_logger().error(f"生成地图 PNG 失败: {exc}")
-            handler.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
-            return
-
-        handler.send_response(HTTPStatus.OK)
-        handler.send_header("Content-Type", "image/png")
-        handler.send_header("Cache-Control", "no-cache")
-        handler.send_header("Content-Length", str(len(data)))
-        handler.end_headers()
-        handler.wfile.write(data)
-
-    def _start_http_server(self) -> None:
-        node = self
-
-        class Handler(BaseHTTPRequestHandler):
-            def log_message(self, format: str, *args) -> None:  # noqa: A003
-                node.get_logger().debug(f"{self.address_string()} - {format % args}")
-
-            def _read_json(self) -> Dict[str, Any]:
-                length = int(self.headers.get("Content-Length", "0"))
-                if length <= 0:
-                    return {}
-                return parse_json(self.rfile.read(length).decode("utf-8"))
-
-            def _send_json(self, payload: Dict[str, Any], status: int = HTTPStatus.OK) -> None:
-                data = json_dumps(payload).encode("utf-8")
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self) -> None:  # noqa: N802
-                parsed = urlparse(self.path)
-                path = parsed.path
-                if path == "/favicon.ico":
-                    self.send_response(HTTPStatus.NO_CONTENT)
-                    self.end_headers()
-                    return
-                if path in {"/", "/index.html"}:
-                    node._serve_file(node.web_root / "index.html", self)
-                    return
-                if path == "/app.js":
-                    node._serve_file(node.web_root / "app.js", self)
-                    return
-                if path == "/styles.css":
-                    node._serve_file(node.web_root / "styles.css", self)
-                    return
-                if path == "/api/status":
-                    self._send_json(node._status_payload())
-                    return
-                if path == "/api/test-report-summary":
-                    self._send_json(node._test_report_summary_payload())
-                    return
-                if path == "/api/maps":
-                    self._send_json({"maps": list_maps(node.runtime_root)})
-                    return
-                parts = [item for item in path.strip("/").split("/") if item]
-                if len(parts) == 4 and parts[:2] == ["api", "maps"] and parts[3] == "annotations":
-                    self._send_json(load_annotations(node.runtime_root, parts[2]))
-                    return
-                if len(parts) == 4 and parts[:2] == ["api", "maps"] and parts[3] == "map":
-                    node._serve_generated_png(map_png_bytes, parts[2], self)
-                    return
-                if len(parts) == 4 and parts[:2] == ["api", "maps"] and parts[3] == "keepout":
-                    node._serve_generated_png(keepout_png_bytes, parts[2], self)
-                    return
-                self.send_error(HTTPStatus.NOT_FOUND, "unknown path")
-
-            def do_POST(self) -> None:  # noqa: N802
-                payload = self._read_json()
-                try:
-                    if self.path == "/api/cmd_vel":
-                        self._send_json(node._apply_cmd_vel(payload))
-                        return
-                    if self.path == "/api/stop":
-                        self._send_json(node._stop_teleop())
-                        return
-                    if self.path == "/api/pump":
-                        enabled = bool(payload.get("enabled", False))
-                        authorized_test = bool(payload.get("authorized_test", False))
-                        current_state = str(node._mission.get("state", "BOOT"))
-                        if enabled and current_state not in {"STOPPING", "SPRAYING"} and not authorized_test:
-                            self._send_json(
-                                {"ok": False, "error": "当前状态不允许直接开泵，请使用授权测试模式"},
-                                status=HTTPStatus.FORBIDDEN,
-                            )
-                            return
-                        if enabled and authorized_test:
-                            node._manual_pump_enabled = True
-                            node._last_pump_keepalive = 0.0
-                            node._publish_mission_command(
-                                {
-                                    "command": "authorized_pump_test",
-                                    "duration_sec": max(2.0, node.pump_keepalive_sec * 3.0),
-                                    "detail": "网页授权持续抽水",
-                                }
-                            )
-                            node._publish_pump(True)
-                            node._last_pump_keepalive = time.monotonic()
-                        else:
-                            node._manual_pump_enabled = False
-                            node._publish_pump(enabled)
-                        node._append_log("info", f"泵控制 -> {enabled} authorized_test={authorized_test}")
-                        self._send_json({"enabled": enabled, "authorized_test": authorized_test})
-                        return
-                    if self.path == "/api/fire":
-                        self._send_json(node._publish_fire_command(payload))
-                        return
-                    if self.path == "/api/mission":
-                        self._send_json(node._publish_mission_command(payload))
-                        return
-                    if self.path == "/api/maps/save":
-                        if node._panel_is_status_only():
-                            self._send_json({"ok": False, "error": "status_only 模式禁止保存地图"}, status=HTTPStatus.FORBIDDEN)
-                            return
-                        self._send_json(node._save_map(str(payload.get("map_id", "map_default"))))
-                        return
-                    if self.path == "/api/runtime/mapping/start":
-                        self._send_json(node._start_mapping_workbench())
-                        return
-                    if self.path == "/api/runtime/patrol/ensure_remote":
-                        self._send_json(node._ensure_remote_patrol_mode())
-                        return
-                    if self.path == "/api/maps/annotations":
-                        if node._panel_is_status_only():
-                            self._send_json({"ok": False, "error": "status_only 模式禁止修改地图标注"}, status=HTTPStatus.FORBIDDEN)
-                            return
-                        self._send_json(node._save_annotations(payload))
-                        return
-                except Exception as exc:  # noqa: BLE001
-                    node.get_logger().error(f"HTTP 接口处理失败: {exc}")
-                    self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                    return
-                self.send_error(HTTPStatus.NOT_FOUND, "unknown path")
-
-        self._http_server = _ThreadingHTTPServer((self.bind_host, self.bind_port), Handler)
-        thread = threading.Thread(target=self._http_server.serve_forever, daemon=True)
-        thread.start()
-        self.get_logger().info(f"广播中心面板: http://127.0.0.1:{self.bind_port}/")
-
 
 def main() -> None:
     rclpy.init()

@@ -11,6 +11,7 @@ from sensor_msgs.msg import Image
 from leap1_a20_interfaces.msg import PerceptionDetection
 
 from .common import PERCEPTION_DETECTION_TOPIC, camera_image_topic, clamp, now_stamp
+from .image_tools import channels_for_encoding, image_to_bgr
 
 
 @dataclass(frozen=True)
@@ -108,53 +109,11 @@ class FlameDetectionNode(Node):
             )
 
     def _image_to_bgr(self, msg: Image) -> np.ndarray | None:
-        encoding = msg.encoding.lower()
-        channels = self._channels_for_encoding(encoding)
-        if channels == 0:
-            self.get_logger().warning(f"暂不支持的图像编码: {msg.encoding}")
-            return None
-
-        row_bytes = msg.width * channels
-        if msg.step < row_bytes:
-            self.get_logger().warning(
-                f"图像步长异常 width={msg.width} channels={channels} step={msg.step}"
-            )
-            return None
-
-        required = msg.step * msg.height
-        buffer = np.frombuffer(msg.data, dtype=np.uint8)
-        if buffer.size < required:
-            self.get_logger().warning(f"图像数据长度不足 expected={required} actual={buffer.size}")
-            return None
-
-        matrix = buffer[:required].reshape((msg.height, msg.step))
-        pixels = matrix[:, :row_bytes]
-        if channels == 1:
-            gray = pixels.reshape((msg.height, msg.width))
-            return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-
-        image = pixels.reshape((msg.height, msg.width, channels))
-        image = np.ascontiguousarray(image)
-
-        if encoding == "bgr8":
-            return image
-        if encoding == "rgb8":
-            return cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-        if encoding == "bgra8":
-            return cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
-        if encoding == "rgba8":
-            return cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
-        return None
+        return image_to_bgr(msg, logger=self.get_logger())
 
     @staticmethod
     def _channels_for_encoding(encoding: str) -> int:
-        if encoding in {"mono8", "8uc1"}:
-            return 1
-        if encoding in {"bgr8", "rgb8"}:
-            return 3
-        if encoding in {"bgra8", "rgba8"}:
-            return 4
-        return 0
+        return channels_for_encoding(encoding)
 
     def _resize_frame(self, frame: np.ndarray) -> np.ndarray:
         if self.max_width <= 0:

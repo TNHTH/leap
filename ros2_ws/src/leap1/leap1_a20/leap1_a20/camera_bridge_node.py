@@ -3,8 +3,7 @@ from __future__ import annotations
 import threading
 import time
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import socket
+from http.server import BaseHTTPRequestHandler
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -16,11 +15,7 @@ from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
 
 from .common import CAMERA_STATUS_TOPIC, camera_image_topic, camera_info_topic, json_dumps, utc_now_text
-
-
-class _ReusableThreadingHTTPServer(ThreadingHTTPServer):
-    daemon_threads = True
-    allow_reuse_address = True
+from .http_utils import ReusableThreadingHTTPServer, resolve_public_host
 
 
 class CameraBridgeNode(Node):
@@ -66,7 +61,7 @@ class CameraBridgeNode(Node):
         self._latest_stamp = 0.0
         self._online = False
         self._stop_event = threading.Event()
-        self._http_server: Optional[_ReusableThreadingHTTPServer] = None
+        self._http_server: Optional[ReusableThreadingHTTPServer] = None
 
         self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._capture_thread.start()
@@ -74,26 +69,7 @@ class CameraBridgeNode(Node):
         self.create_timer(1.0, self._publish_status)
 
     def _resolve_public_host(self) -> str:
-        if self.public_host:
-            return self.public_host
-        try:
-            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            try:
-                probe.connect(("8.8.8.8", 80))
-                candidate = probe.getsockname()[0]
-                if candidate and not candidate.startswith("127."):
-                    return candidate
-            finally:
-                probe.close()
-        except OSError:
-            pass
-        try:
-            candidate = socket.gethostbyname(socket.gethostname())
-            if candidate and not candidate.startswith("127."):
-                return candidate
-        except OSError:
-            pass
-        return "127.0.0.1"
+        return resolve_public_host(self.public_host)
 
     def destroy_node(self) -> bool:
         self._stop_event.set()
@@ -295,7 +271,7 @@ class CameraBridgeNode(Node):
                     except ConnectionResetError:
                         break
 
-        self._http_server = _ReusableThreadingHTTPServer((self.mjpeg_host, self.mjpeg_port), Handler)
+        self._http_server = ReusableThreadingHTTPServer((self.mjpeg_host, self.mjpeg_port), Handler)
         thread = threading.Thread(target=self._http_server.serve_forever, daemon=True)
         thread.start()
         self.get_logger().info(
