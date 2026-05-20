@@ -15,6 +15,7 @@ install_*/
 .pio/
 .pioenvs/
 .piolibdeps/
+/firmware/**/.pio/
 
 # IDE
 .vscode/
@@ -23,13 +24,25 @@ install_*/
 # Python
 __pycache__/
 *.pyc
+.pytest_cache/
 
 # Runtime / generated artifacts
 *.pgm
 *.yaml.orig
 *.log
 /log/
+/runtime/
 /runtime/camera_runtime/**/weights/*.pt
+
+# 历史归档和资料层不作为现役源码提交入口
+/archives/imported/
+/archives/worktrees/
+/archives/repos/
+
+# 大型二进制交付物转移到 Release 或资料索引
+*.bin
+*.elf
+*.exe
 
 # OS
 .DS_Store

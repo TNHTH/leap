@@ -1,9 +1,0 @@
-builtin_interfaces/Time stamp
-string state
-string detail
-bool healthy
-string fault_code
-string map_id
-string route_id
-bool patrol_active
-bool fire_active
