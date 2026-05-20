@@ -9,6 +9,7 @@
 - 先给结论，再给执行细节。
 
 ## Default Context
+- 项目上下文入口：`/home/gwh/文档/Obsidian Vault/03_项目记录/Leap项目上下文入口_2026-04-27_22-02.md`。当用户要求“了解/接手 Leap 项目”时先读该入口。
 - 当用户提到“leap 项目”“Leap 小车”“leap 仓库”或路径 `/home/gwh/leap` 时，先读取 `docs/README.md` 作为默认仓库入口。
 - 若任务涉及项目要求、展示目标、系统闭环或 A20 方案，优先读取：
   - `docs/project/a20-fire-inspection-project-framework-2026-04-10.md`
