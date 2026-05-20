@@ -2,10 +2,10 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>xuegecar_bringup</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="xuegeros@todo.todo">xuegeros</maintainer>
-  <license>TODO: License declaration</license>
+  <version>0.1.0</version>
+  <description>Leap1 robot bringup package for A20 fire inspection demo.</description>
+  <maintainer email="gwh@example.com">gwh</maintainer>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
@@ -19,12 +19,22 @@
   <exec_depend>joint_state_publisher</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>xuegecar_description</exec_depend>
+  <exec_depend>xuegecar_navigation2</exec_depend>
+  <exec_depend>leap1_a20</exec_depend>
+  <exec_depend>leap1_a20_interfaces</exec_depend>
+  <exec_depend>xuegecar_gazebo</exec_depend>
   <exec_depend>ydlidar_ros2_driver</exec_depend>
+  <exec_depend>ldlidar_stl_ros2</exec_depend>
   <exec_depend>slam_gmapping</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>gazebo_ros</exec_depend>
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>nav2_collision_monitor</exec_depend>
   <exec_depend>rviz2</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

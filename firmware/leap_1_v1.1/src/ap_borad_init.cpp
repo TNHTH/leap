@@ -1,5 +1,6 @@
 #include "ap_hw_init.h"
 #include "ap_global.h"
+#include "ap_safety.h"
 #include <WebServer.h>
 
 // ================= Web服务器定义 =================
@@ -16,6 +17,7 @@ body {
   font-family: sans-serif;
   text-align: center;
   background: #f4f4f4;
+  padding: 20px;
 }
 button {
   width: 80px;
@@ -31,6 +33,20 @@ button {
 button:active {
   background: #2a5bd7;
 }
+#pump-panel {
+  margin-top: 28px;
+}
+#pump-panel button {
+  width: 120px;
+  height: 56px;
+  font-size: 22px;
+}
+.pump-on {
+  background: #1f9d55;
+}
+.pump-off {
+  background: #d64545;
+}
 #panel {
   display: inline-grid;
   grid-template-columns: 100px 100px 100px;
@@ -42,6 +58,11 @@ button:active {
 #val {
   margin-top: 20px;
   font-size: 20px;
+}
+#pump-state {
+  margin-top: 14px;
+  font-size: 18px;
+  font-weight: bold;
 }
 </style>
 </head>
@@ -59,10 +80,42 @@ button:active {
     <div></div>
   </div>
   <p id="val">vx=0.00, vz=0.00</p>
+  <div id="pump-panel">
+    <h2>💧 水泵控制</h2>
+    <button id="pump-toggle" class="pump-off">开启抽水</button>
+    <p id="pump-state">泵状态：关闭</p>
+  </div>
 
 <script>
 let vx = 0.0, vz = 0.0;
 const step = 0.1;
+let pumpEnabled = false;
+let pumpHeartbeatTimer = null;
+
+function updatePumpUi() {
+  const button = document.getElementById("pump-toggle");
+  const state = document.getElementById("pump-state");
+  button.className = pumpEnabled ? "pump-on" : "pump-off";
+  button.innerText = pumpEnabled ? "停止抽水" : "开启抽水";
+  state.innerText = `泵状态：${pumpEnabled ? "开启" : "关闭"}`;
+}
+
+function sendPumpCommand(enabled) {
+  return fetch(`/pump?enabled=${enabled ? 1 : 0}`);
+}
+
+function syncStatus() {
+  fetch("/status")
+    .then((response) => response.json())
+    .then((data) => {
+      vx = Number(data.vx ?? 0.0);
+      vz = Number(data.vz ?? 0.0);
+      pumpEnabled = Boolean(data.pump);
+      document.getElementById("val").innerText = `vx=${vx.toFixed(2)}, vz=${vz.toFixed(2)}`;
+      updatePumpUi();
+    })
+    .catch(() => {});
+}
 
 function update() {
   document.getElementById("val").innerText = `vx=${vx.toFixed(2)}, vz=${vz.toFixed(2)}`;
@@ -74,6 +127,25 @@ document.getElementById("down").onclick = () => { vx -= step; update(); };
 document.getElementById("left").onclick = () => { vz += step; update(); };
 document.getElementById("right").onclick = () => { vz -= step; update(); };
 document.getElementById("stop").onclick = () => { vx = 0; vz = 0; update(); };
+document.getElementById("pump-toggle").onclick = () => {
+  const nextEnabled = !pumpEnabled;
+  sendPumpCommand(nextEnabled).then(() => {
+    pumpEnabled = nextEnabled;
+    updatePumpUi();
+    if (pumpHeartbeatTimer) {
+      clearInterval(pumpHeartbeatTimer);
+      pumpHeartbeatTimer = null;
+    }
+    if (pumpEnabled) {
+      pumpHeartbeatTimer = setInterval(() => {
+        sendPumpCommand(true).catch(() => {});
+      }, 500);
+    }
+  });
+};
+
+syncStatus();
+setInterval(syncStatus, 1000);
 </script>
 </body>
 </html>
@@ -96,6 +168,7 @@ void handleSet() {
 
     pid_controller[0].update_target(target_motor_speed1);
     pid_controller[1].update_target(target_motor_speed2);
+    safety_on_web_motion_command_received();
 
     log_debug("web", "recv vx=%.2f vz=%.2f,l1:%.2f,l2:%.2f", http_vx, http_vz,target_motor_speed1,target_motor_speed2);
     server.send(200, "text/html",
@@ -103,9 +176,33 @@ void handleSet() {
                 "</p><a href='/'>返回</a>");
 }
 
+void handlePump() {
+    bool enabled = false;
+    if (server.hasArg("enabled")) {
+        enabled = server.arg("enabled").toInt() != 0;
+    }
+
+    safety_set_web_pump_command(enabled);
+    log_debug("web", "pump command from web enabled=%d", enabled ? 1 : 0);
+    server.send(200, "application/json", String("{\"ok\":true,\"pump\":") + (safety_pump_enabled() ? "true" : "false") + "}");
+}
+
+void handleStatus() {
+    String body("{\"vx\":");
+    body += String(http_vx, 2);
+    body += ",\"vz\":";
+    body += String(http_vz, 2);
+    body += ",\"pump\":";
+    body += safety_pump_enabled() ? "true" : "false";
+    body += "}";
+    server.send(200, "application/json", body);
+}
+
 void startWebServer() {
     server.on("/", handleRoot);
     server.on("/set", handleSet);
+    server.on("/pump", handlePump);
+    server.on("/status", handleStatus);
     server.begin();
     log_debug("web", "WebServer started at http://%s", WiFi.localIP().toString().c_str());
 }
@@ -127,6 +224,7 @@ bool Board::board_init() {
     if (!button_init()) while (true);
     if (!battery_init()) while (true);
 
+    safety_init();
     imu.begin(18, 19);
 
     pid_controller[0].update_pid(config.kinematics_pid_kp(), config.kinematics_pid_ki(), config.kinematics_pid_kd());
@@ -134,8 +232,8 @@ bool Board::board_init() {
     pid_controller[0].out_limit(-config.kinematics_pid_out_limit(), config.kinematics_pid_out_limit());
     pid_controller[1].out_limit(-config.kinematics_pid_out_limit(), config.kinematics_pid_out_limit());
 
-    kinematics.set_motor_param(0, config.motor_reducation_ration(0), config.motor_pulse_ration(0), config.motor_wheel_diameter(0));
-    kinematics.set_motor_param(1, config.motor_reducation_ration(1), config.motor_pulse_ration(1), config.motor_wheel_diameter(1));
+    kinematics.set_motor_param(0, config.kinematics_reducation_ration(), config.kinematics_pulse_ration(), config.kinematics_wheel_diameter());
+    kinematics.set_motor_param(1, config.kinematics_reducation_ration(), config.kinematics_pulse_ration(), config.kinematics_wheel_diameter());
     kinematics.set_kinematic_param(config.kinematics_wheel_distance());
     refresh_control_config();
 

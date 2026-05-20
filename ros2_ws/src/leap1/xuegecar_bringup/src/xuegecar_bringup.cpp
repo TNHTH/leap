@@ -1,72 +1,95 @@
-#include <rclcpp/rclcpp.hpp>
-#include <rclcpp/rclcpp.hpp>
+#include <cmath>
+#include <functional>
+#include <memory>
+#include <string>
+
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
-#include <tf2/utils.h>
+#include <rclcpp/rclcpp.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 
-class TopicSubscribe01 : public rclcpp::Node
+class OdomTfBroadcaster : public rclcpp::Node
 {
 public:
-  TopicSubscribe01(std::string name) : Node(name)
+  OdomTfBroadcaster()
+  : Node("leap1_odom_tf_broadcaster")
   {
-    odom_subscribe_ = this->create_subscription<nav_msgs::msg::Odometry>("odom", rclcpp::SensorDataQoS(), std::bind(&TopicSubscribe01::odom_callback, this, std::placeholders::_1));
-    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(this);
+    odom_topic_ = declare_parameter<std::string>("odom_topic", "odom");
+    odom_frame_ = declare_parameter<std::string>("odom_frame", "odom");
+    base_frame_ = declare_parameter<std::string>("base_frame", "base_footprint");
+    publish_tf_ = declare_parameter<bool>("publish_tf", true);
+
+    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+    odom_subscription_ = create_subscription<nav_msgs::msg::Odometry>(
+      odom_topic_,
+      rclcpp::SensorDataQoS(),
+      std::bind(&OdomTfBroadcaster::odom_callback, this, std::placeholders::_1));
   }
 
 private:
-  // 声明一个订阅者
-  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_subscribe_;
-  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
-  nav_msgs::msg::Odometry odom_msg_;
-
   void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg)
   {
-    (void)msg;
-    // RCLCPP_INFO(this->get_logger(), "recv odom->base_footprint tf :(%f,%f)", msg->pose.pose.position.x, msg->pose.pose.position.y);
-    odom_msg_.pose.pose.position.x = msg->pose.pose.position.x;
-    odom_msg_.pose.pose.position.y = msg->pose.pose.position.y;
-    odom_msg_.pose.pose.position.z = msg->pose.pose.position.z;
+    if (!publish_tf_) {
+      return;
+    }
 
-    odom_msg_.pose.pose.orientation.x = msg->pose.pose.orientation.x;
-    odom_msg_.pose.pose.orientation.y = msg->pose.pose.orientation.y;
-    odom_msg_.pose.pose.orientation.z = msg->pose.pose.orientation.z;
-    odom_msg_.pose.pose.orientation.w = msg->pose.pose.orientation.w;
-  };
-
-public:
-  void publish_tf()
-  {
-    geometry_msgs::msg::TransformStamped transform;
-    double seconds = this->now().seconds();
-    transform.header.stamp = rclcpp::Time(static_cast<uint64_t>(seconds * 1e9));
-    transform.header.frame_id = "odom";
-    transform.child_frame_id = "base_footprint";
-
-    transform.transform.translation.x = odom_msg_.pose.pose.position.x;
-    transform.transform.translation.y = odom_msg_.pose.pose.position.y;
-    transform.transform.translation.z = odom_msg_.pose.pose.position.z;
-    transform.transform.rotation.x = odom_msg_.pose.pose.orientation.x;
-    transform.transform.rotation.y = odom_msg_.pose.pose.orientation.y;
-    transform.transform.rotation.z = odom_msg_.pose.pose.orientation.z;
-    transform.transform.rotation.w = odom_msg_.pose.pose.orientation.w;
+    auto transform = to_transform(*msg);
     tf_broadcaster_->sendTransform(transform);
   }
-};
 
-int main(int argc, char **argv)
-{
-  rclcpp::init(argc, argv);
-  /*产生一个的节点*/
-  auto node = std::make_shared<TopicSubscribe01>("xuegecar_bringup");
-  /* 运行节点，并检测退出信号*/
-  rclcpp::WallRate loop_rate(1000.0);
-  while (rclcpp::ok())
+  geometry_msgs::msg::TransformStamped to_transform(const nav_msgs::msg::Odometry & odom_msg)
   {
-    rclcpp::spin_some(node);
-    node->publish_tf();
-    loop_rate.sleep();
+    geometry_msgs::msg::TransformStamped transform;
+    transform.header.stamp = odom_msg.header.stamp;
+    transform.header.frame_id = odom_frame_;
+    transform.child_frame_id = base_frame_;
+    transform.transform.translation.x = odom_msg.pose.pose.position.x;
+    transform.transform.translation.y = odom_msg.pose.pose.position.y;
+    transform.transform.translation.z = odom_msg.pose.pose.position.z;
+    transform.transform.rotation = normalized_orientation(odom_msg);
+    return transform;
   }
 
+  geometry_msgs::msg::Quaternion normalized_orientation(const nav_msgs::msg::Odometry & odom_msg)
+  {
+    auto orientation = odom_msg.pose.pose.orientation;
+    const double norm_squared =
+      orientation.x * orientation.x +
+      orientation.y * orientation.y +
+      orientation.z * orientation.z +
+      orientation.w * orientation.w;
+
+    if (!std::isfinite(norm_squared) || norm_squared < 1e-12) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "odom orientation is invalid; publish identity quaternion");
+      orientation.x = 0.0;
+      orientation.y = 0.0;
+      orientation.z = 0.0;
+      orientation.w = 1.0;
+      return orientation;
+    }
+
+    const double norm = std::sqrt(norm_squared);
+    orientation.x /= norm;
+    orientation.y /= norm;
+    orientation.z /= norm;
+    orientation.w /= norm;
+    return orientation;
+  }
+
+  std::string odom_topic_;
+  std::string odom_frame_;
+  std::string base_frame_;
+  bool publish_tf_ = true;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_subscription_;
+  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+};
+
+int main(int argc, char ** argv)
+{
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<OdomTfBroadcaster>());
   rclcpp::shutdown();
   return 0;
 }

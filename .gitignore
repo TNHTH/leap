@@ -1,15 +1,22 @@
+# 仓库工具与临时目录
+.codex/
+.tmp/
+/worktrees/
+
 # ROS 2 / colcon
+/ros2_ws/build/
+/ros2_ws/install/
+/ros2_ws/log/
 build/
 build_*/
 install/
 install_*/
-log/
-log_*/
 
 # PlatformIO
 .pio/
 .pioenvs/
 .piolibdeps/
+/firmware/**/.pio/
 
 # IDE
 .vscode/
@@ -18,11 +25,25 @@ log_*/
 # Python
 __pycache__/
 *.pyc
+.pytest_cache/
 
-# Maps / runtime artifacts
+# Runtime / generated artifacts
 *.pgm
 *.yaml.orig
 *.log
+/log/
+/runtime/
+/runtime/camera_runtime/**/weights/*.pt
+
+# 历史归档和资料层不作为现役源码提交入口
+/archives/imported/
+/archives/worktrees/
+/archives/repos/
+
+# 大型二进制交付物转移到 Release 或资料索引
+*.bin
+*.elf
+*.exe
 
 # OS
 .DS_Store

@@ -1,5 +1,6 @@
 #include "ap_control.h"
 #include "ap_global.h"
+#include "ap_safety.h"
 #include <math.h>
 
 namespace
@@ -33,6 +34,14 @@ bool is_motor_compensation_key(const char *key)
            strcmp(key, CONFIG_NAME_MOTOR1_STARTUP_BOOST_PWM) == 0 ||
            strcmp(key, CONFIG_NAME_MOTOR0_STARTUP_BOOST_MS) == 0 ||
            strcmp(key, CONFIG_NAME_MOTOR1_STARTUP_BOOST_MS) == 0;
+}
+
+bool is_pump_config_key(const char *key)
+{
+    return strcmp(key, CONFIG_NAME_PUMP_GPIO) == 0 ||
+           strcmp(key, CONFIG_NAME_PUMP_ACTIVE_LEVEL) == 0 ||
+           strcmp(key, "pump_active_level") == 0 ||
+           strcmp(key, CONFIG_NAME_PUMP_TIMEOUT_MS) == 0;
 }
 
 void refresh_motor_compensation_config()
@@ -128,6 +137,21 @@ float apply_motor_compensation(uint8_t index, float target_speed, float current_
     }
     return output;
 }
+
+void update_agent_state(states new_state)
+{
+    if (state == new_state) {
+        return;
+    }
+
+    state = new_state;
+    safety_on_agent_state_changed(new_state);
+}
+
+bool allow_serial_config_commands()
+{
+    return config.microros_transport_mode() != CONFIG_TRANSPORT_MODE_SERIAL || state != AGENT_CONNECTED;
+}
 } // namespace
 
 void refresh_control_config()
@@ -162,6 +186,7 @@ void loop_control() {
     }
 
     // 显示和外设更新
+    safety_loop();
     display.updateCurrentTime(rmw_uros_epoch_millis());
     display.updateDisplay();
     button.tick();
@@ -173,43 +198,38 @@ void loop_transport() {
     static int config_result;
 
     // 处理串口配置命令
-    while (Serial.available()) {
-        int c = Serial.read();
-        config_result = config.loop_config_uart(c, result);
-        if (config_result == CONFIG_PARSE_OK) {
-            deal_command(result[0], result[1]);
-        } else if (config_result == CONFIG_PARSE_ERROR) {
-            Serial.print("$result=error parse\n");
+    if (allow_serial_config_commands()) {
+        while (Serial.available()) {
+            int c = Serial.read();
+            config_result = config.loop_config_uart(c, result);
+            if (config_result == CONFIG_PARSE_OK) {
+                deal_command(result[0], result[1]);
+            } else if (config_result == CONFIG_PARSE_ERROR) {
+                Serial.print("$result=error parse\n");
+            }
         }
     }
 
     // ROS代理连接状态管理
     switch (state) {
         case WAITING_AGENT:
-            if (config.microros_transport_mode() == CONFIG_TRANSPORT_MODE_WIFI_UDP_CLIENT &&
-                wifi_status != WIFI_STATUS_GOT_IP &&
-                WiFi.status() != WL_CONNECTED) {
-                break;
-            }
-            EXECUTE_EVERY_N_MS(5000, state = (RMW_RET_OK == rmw_uros_ping_agent(300, 5)) ? AGENT_AVAILABLE : WAITING_AGENT;);
+            EXECUTE_EVERY_N_MS(5000, update_agent_state((RMW_RET_OK == rmw_uros_ping_agent(300, 5)) ? AGENT_AVAILABLE : WAITING_AGENT););
             digitalWrite(2, !digitalRead(2));
             if (state == WAITING_AGENT && wifi_status == WIFI_STATUS_GOT_IP) {
                 display.updateWIFIInfo("ping timeout", WIFI_STATUS_PING_FAILED);
             }
             break;
         case AGENT_AVAILABLE:
-            state = (true == create_transport()) ? AGENT_CONNECTED : WAITING_AGENT;
+            update_agent_state((true == create_transport()) ? AGENT_CONNECTED : WAITING_AGENT);
             if (state == AGENT_CONNECTED) {
                 display.updateWIFIInfo("ping ok", WIFI_STATUS_OK);
-            } else {
-                log_debug("ros2", "create_transport failed, keep waiting agent");
             }
             if (state == WAITING_AGENT) {
                 destory_transport();
             }
             break;
         case AGENT_CONNECTED:
-            EXECUTE_EVERY_N_MS(5000, state = (RMW_RET_OK == rmw_uros_ping_agent(300, 5)) ? AGENT_CONNECTED : AGENT_DISCONNECTED;);
+            EXECUTE_EVERY_N_MS(5000, update_agent_state((RMW_RET_OK == rmw_uros_ping_agent(300, 5)) ? AGENT_CONNECTED : AGENT_DISCONNECTED););
             if (state == AGENT_DISCONNECTED && wifi_status == WIFI_STATUS_GOT_IP) {
                 display.updateWIFIInfo("ping timeout", WIFI_STATUS_PING_FAILED);
             }
@@ -229,7 +249,7 @@ void loop_transport() {
             break;
         case AGENT_DISCONNECTED:
             destory_transport();
-            state = WAITING_AGENT;
+            update_agent_state(WAITING_AGENT);
             break;
         default:
             break;
@@ -243,6 +263,7 @@ void loop_transport() {
 void deal_command(char key[32], char value[32]) {
     if (strcmp(key, "command") == 0) {
         if (strcmp(value, "restart") == 0) {
+            safety_force_pump_off();
             esp_restart();
         } else if (strcmp(value, "read_config") == 0) {
             Serial.print(config.config_str());
@@ -270,6 +291,9 @@ void deal_command(char key[32], char value[32]) {
         config.config(recv_key, recv_value);
         if (is_motor_compensation_key(key)) {
             refresh_motor_compensation_config();
+        }
+        if (is_pump_config_key(key)) {
+            safety_init();
         }
         Serial.print("$result=ok\n");
     }

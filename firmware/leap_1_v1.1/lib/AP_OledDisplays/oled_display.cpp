@@ -183,5 +183,5 @@ void OledDisplay::updateWIFISSID(String ssid)
 }
 void OledDisplay::updateWIFIPSWD(String pswd)
 {
-    wifi_pswd_ = pswd;
+    wifi_pswd_ = pswd.length() == 0 ? "" : "******";
 }

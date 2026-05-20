@@ -1,0 +1,2 @@
+# Minimal deps for camera deployment script (in addition to repo root requirements.txt)
+opencv-python>=4.8.0

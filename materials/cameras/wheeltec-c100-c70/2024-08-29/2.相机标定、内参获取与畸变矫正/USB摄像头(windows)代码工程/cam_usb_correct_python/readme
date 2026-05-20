@@ -1,0 +1,30 @@
+ubuntu安装OpenCV（python）环境
+创建虚拟环境安装opencv
+conda activate -n opencv
+conda activate opencv
+pip install opencv-python
+
+进入环境运行代码
+conda activate opencv
+cd /home/chen/code/cam_usb_correct_python
+python correct.py
+
+
+windows安装OpenCV（python）环境
+下载安装包
+https://www.python.org/downloads/windows/
+例如Python 3.10.11  Windows installer (64-bit)
+
+创建虚拟环境安装OpenCV
+python -m venv opencv
+.\opencv\Scripts\activate
+pip install opencv-python
+验证
+python
+import cv2
+print(cv2.__version__)
+
+进入环境运行代码
+.\opencv\Scripts\activate
+cd C:\code\OpenCV\cam_usb_correct_python
+python correct.py

@@ -2,36 +2,6 @@
 
 namespace
 {
-const char *motor_reducation_key(uint8_t id)
-{
-    return id == 0 ? CONFIG_NAME_MOTOR0_PARAM_REDUCATION_RATIO : CONFIG_NAME_MOTOR1_PARAM_REDUCATION_RATIO;
-}
-
-const char *motor_reducation_default(uint8_t id)
-{
-    return id == 0 ? CONFIG_DEFAULT_MOTOR0_PARAM_REDUCATION_RATIO : CONFIG_DEFAULT_MOTOR1_PARAM_REDUCATION_RATIO;
-}
-
-const char *motor_pulse_key(uint8_t id)
-{
-    return id == 0 ? CONFIG_NAME_MOTOR0_PARAM_PULSE_RATION : CONFIG_NAME_MOTOR1_PARAM_PULSE_RATION;
-}
-
-const char *motor_pulse_default(uint8_t id)
-{
-    return id == 0 ? CONFIG_DEFAULT_MOTOR0_PARAM_PULSE_RATION : CONFIG_DEFAULT_MOTOR1_PARAM_PULSE_RATION;
-}
-
-const char *motor_wheel_key(uint8_t id)
-{
-    return id == 0 ? CONFIG_NAME_MOTOR0_PARAM_WHEEL_DIAMETER : CONFIG_NAME_MOTOR1_PARAM_WHEEL_DIAMETER;
-}
-
-const char *motor_wheel_default(uint8_t id)
-{
-    return id == 0 ? CONFIG_DEFAULT_MOTOR0_PARAM_WHEEL_DIAMETER : CONFIG_DEFAULT_MOTOR1_PARAM_WHEEL_DIAMETER;
-}
-
 const char *motor_gain_key(uint8_t id)
 {
     return id == 0 ? CONFIG_NAME_MOTOR0_COMPENSATION_GAIN : CONFIG_NAME_MOTOR1_COMPENSATION_GAIN;
@@ -70,6 +40,19 @@ const char *motor_startup_boost_ms_key(uint8_t id)
 const char *motor_startup_boost_ms_default(uint8_t id)
 {
     return id == 0 ? CONFIG_DEFAULT_MOTOR0_STARTUP_BOOST_MS : CONFIG_DEFAULT_MOTOR1_STARTUP_BOOST_MS;
+}
+
+bool is_sensitive_key(const String& key)
+{
+    return key == CONFIG_NAME_WIFI_STA_PSWK_NAME || key == "wifi_ap_pswd";
+}
+
+String masked_config_value(const String& key, const String& value)
+{
+    if (!is_sensitive_key(key)) {
+        return value;
+    }
+    return value.length() == 0 ? "" : "******";
 }
 } // namespace
 
@@ -115,8 +98,21 @@ void LeapBotConfig::init(String namespace_)
         preferences.putString(CONFIG_NAME_MOTOR1_STARTUP_BOOST_PWM, CONFIG_DEFAULT_MOTOR1_STARTUP_BOOST_PWM);
         preferences.putString(CONFIG_NAME_MOTOR0_STARTUP_BOOST_MS, CONFIG_DEFAULT_MOTOR0_STARTUP_BOOST_MS);
         preferences.putString(CONFIG_NAME_MOTOR1_STARTUP_BOOST_MS, CONFIG_DEFAULT_MOTOR1_STARTUP_BOOST_MS);
+        preferences.putString(CONFIG_NAME_PUMP_GPIO, CONFIG_DEFAULT_PUMP_GPIO);
+        preferences.putString(CONFIG_NAME_PUMP_ACTIVE_LEVEL, CONFIG_DEFAULT_PUMP_ACTIVE_LEVEL);
+        preferences.putString(CONFIG_NAME_PUMP_TIMEOUT_MS, CONFIG_DEFAULT_PUMP_TIMEOUT_MS);
 
         preferences.putBool("first_startup", false);
+    }
+
+    if (!preferences.isKey(CONFIG_NAME_PUMP_GPIO)) {
+        preferences.putString(CONFIG_NAME_PUMP_GPIO, CONFIG_DEFAULT_PUMP_GPIO);
+    }
+    if (!preferences.isKey(CONFIG_NAME_PUMP_ACTIVE_LEVEL)) {
+        preferences.putString(CONFIG_NAME_PUMP_ACTIVE_LEVEL, CONFIG_DEFAULT_PUMP_ACTIVE_LEVEL);
+    }
+    if (!preferences.isKey(CONFIG_NAME_PUMP_TIMEOUT_MS)) {
+        preferences.putString(CONFIG_NAME_PUMP_TIMEOUT_MS, CONFIG_DEFAULT_PUMP_TIMEOUT_MS);
     }
 }
 
@@ -128,7 +124,11 @@ uint32_t LeapBotConfig::is_first_startup()
 
 bool LeapBotConfig::config(String key, String value)
 {
-    log_debug("config", "save config key=%s,value=%s", key.c_str(), value.c_str());
+    if (key == "pump_active_level") {
+        key = CONFIG_NAME_PUMP_ACTIVE_LEVEL;
+    }
+    const String log_value = masked_config_value(key, value);
+    log_debug("config", "save config key=%s,value=%s", key.c_str(), log_value.c_str());
     return preferences.putString(key.c_str(), value.c_str());
 }
 
@@ -145,13 +145,13 @@ String LeapBotConfig::config_str()
     config.concat("\n$wifi_ssid=");
     config.concat(wifi_sta_ssid());
     config.concat("\n$wifi_pswd=");
-    config.concat(wifi_sta_pswd());
+    config.concat(masked_config_value(CONFIG_NAME_WIFI_STA_PSWK_NAME, wifi_sta_pswd()));
 
     config.concat("\n$wifi_ap_ssid=");
     config.concat(wifi_ap_ssid());
 
     config.concat("\n$wifi_ap_pswd=");
-    config.concat(wifi_ap_pswd());
+    config.concat(masked_config_value("wifi_ap_pswd", wifi_ap_pswd()));
 
     config.concat("\n$microros_mode=");
     config.concat(microros_transport_mode());
@@ -186,26 +186,17 @@ String LeapBotConfig::config_str()
     config.concat("\n$odom_pub_period=");
     config.concat(odom_publish_period());
 
-    config.concat("\n$motor0_reducation=");
-    config.concat(motor_reducation_ration(0));
+    // config.concat("\n$reducate_ration=");
+    // config.concat(kinematics_reducation_ration());
 
-    config.concat("\n$motor0_pulse=");
-    config.concat(motor_pulse_ration(0));
+    // config.concat("\n$pulse_ration=");
+    // config.concat(kinematics_pulse_ration());
 
-    config.concat("\n$motor0_wheel_diameter=");
-    config.concat(motor_wheel_diameter(0));
+    // config.concat("\n$wheel_diameter=");
+    // config.concat(kinematics_wheel_diameter());
 
-    config.concat("\n$motor1_reducation=");
-    config.concat(motor_reducation_ration(1));
-
-    config.concat("\n$motor1_pulse=");
-    config.concat(motor_pulse_ration(1));
-
-    config.concat("\n$motor1_wheel_diameter=");
-    config.concat(motor_wheel_diameter(1));
-
-    config.concat("\n$wheel_distance=");
-    config.concat(kinematics_wheel_distance());
+    // config.concat("\n$wheel_distance=");
+    // config.concat(kinematics_wheel_distance());
 
     config.concat("\n$pid_kp=");
     config.concat(kinematics_pid_kp());
@@ -242,6 +233,15 @@ String LeapBotConfig::config_str()
 
     config.concat("\n$motor1_start_boost_ms=");
     config.concat(motor_startup_boost_ms(1));
+
+    config.concat("\n$pump_gpio=");
+    config.concat(pump_gpio());
+
+    config.concat("\n$pump_active_level=");
+    config.concat(pump_active_level() ? 1 : 0);
+
+    config.concat("\n$pump_timeout_ms=");
+    config.concat(pump_timeout_ms());
 
     // config.concat("\n$pid_outlimit=");
     // config.concat(kinematics_pid_out_limit());
@@ -342,15 +342,15 @@ float LeapBotConfig::kinematics_wheel_distance()
 }
 float LeapBotConfig::kinematics_reducation_ration()
 {
-    return motor_reducation_ration(0);
+    return preferences.getString("reducate_ration", CONFIG_DEFAULT_MOTOR0_PARAM_REDUCATION_RATIO).toFloat();
 }
 uint32_t LeapBotConfig::kinematics_pulse_ration()
 {
-    return motor_pulse_ration(0);
+    return preferences.getString("pulse_ration", CONFIG_DEFAULT_MOTOR0_PARAM_PULSE_RATION).toInt();
 }
 uint32_t LeapBotConfig::kinematics_wheel_diameter()
 {
-    return motor_wheel_diameter(0);
+    return preferences.getString("wheel_diameter", CONFIG_DEFAULT_MOTOR0_PARAM_WHEEL_DIAMETER).toInt();
 }
 float LeapBotConfig::kinematics_pid_kp()
 {
@@ -366,38 +366,7 @@ float LeapBotConfig::kinematics_pid_kd()
 }
 float LeapBotConfig::kinematics_pid_out_limit()
 {
-    String configured = preferences.getString(CONFIG_NAME_MOTOR_OUT_LIMIT_HIGH, "");
-    if (configured.length() == 0) {
-        configured = preferences.getString("pid_outlimit", CONFIG_DEFAULT_MOTOR_OUT_LIMIT_HIGH);
-    }
-    return configured.toInt();
-}
-
-float LeapBotConfig::motor_reducation_ration(uint8_t id)
-{
-    String configured = preferences.getString(motor_reducation_key(id), "");
-    if (configured.length() == 0) {
-        configured = preferences.getString("reducate_ration", motor_reducation_default(id));
-    }
-    return configured.toFloat();
-}
-
-uint32_t LeapBotConfig::motor_pulse_ration(uint8_t id)
-{
-    String configured = preferences.getString(motor_pulse_key(id), "");
-    if (configured.length() == 0) {
-        configured = preferences.getString("pulse_ration", motor_pulse_default(id));
-    }
-    return configured.toInt();
-}
-
-uint32_t LeapBotConfig::motor_wheel_diameter(uint8_t id)
-{
-    String configured = preferences.getString(motor_wheel_key(id), "");
-    if (configured.length() == 0) {
-        configured = preferences.getString("wheel_diameter", motor_wheel_default(id));
-    }
-    return configured.toInt();
+    return preferences.getString("pid_outlimit", CONFIG_DEFAULT_MOTOR_OUT_LIMIT_HIGH).toInt();
 }
 
 float LeapBotConfig::motor_target_epsilon()
@@ -425,6 +394,21 @@ uint32_t LeapBotConfig::motor_startup_boost_ms(uint8_t id)
     return preferences.getString(motor_startup_boost_ms_key(id), motor_startup_boost_ms_default(id)).toInt();
 }
 
+uint32_t LeapBotConfig::pump_gpio()
+{
+    return preferences.getString(CONFIG_NAME_PUMP_GPIO, CONFIG_DEFAULT_PUMP_GPIO).toInt();
+}
+
+bool LeapBotConfig::pump_active_level()
+{
+    return preferences.getString(CONFIG_NAME_PUMP_ACTIVE_LEVEL, CONFIG_DEFAULT_PUMP_ACTIVE_LEVEL).toInt() != 0;
+}
+
+uint32_t LeapBotConfig::pump_timeout_ms()
+{
+    return preferences.getString(CONFIG_NAME_PUMP_TIMEOUT_MS, CONFIG_DEFAULT_PUMP_TIMEOUT_MS).toInt();
+}
+
 /**
  * @brief
  * @param line
@@ -433,22 +417,34 @@ uint32_t LeapBotConfig::motor_startup_boost_ms(uint8_t id)
  */
 int8_t LeapBotConfig::split_str(const char *line, char result[][32])
 {
+    constexpr uint16_t kMaxFields = 2;
+    constexpr uint16_t kMaxTokenLength = 31;
+
     if (line[0] != '$')
         return CONFIG_PARSE_ERROR;
-    uint16_t index = 0;
     uint16_t count = 0;
     uint16_t temp_index = 0;
-    for (index = 1; line[index] != '\0'; index++)
+    for (uint16_t index = 1; line[index] != '\0'; index++)
     {
         if (line[index] == '=')
         {
-            result[count++][temp_index++] = '\0';
+            if (count + 1 >= kMaxFields || temp_index == 0) {
+                return CONFIG_PARSE_ERROR;
+            }
+            result[count][temp_index] = '\0';
+            count++;
             temp_index = 0;
             continue;
         }
+        if (temp_index >= kMaxTokenLength) {
+            return CONFIG_PARSE_ERROR;
+        }
         result[count][temp_index++] = line[index];
     }
-    result[count][temp_index++] = '\0';
+    if (temp_index == 0) {
+        return CONFIG_PARSE_ERROR;
+    }
+    result[count][temp_index] = '\0';
 
     if (count != 1)
     {
@@ -468,6 +464,12 @@ int8_t LeapBotConfig::loop_config_uart(int c, char result[][32])
 {
     static char line[512];
     static int index = 0;
+    constexpr int kMaxLineLength = sizeof(line) - 1;
+
+    if (c == '\r') {
+        return CONFIG_PARSE_NODATA;
+    }
+
     if (c == '\n')
     {
         line[index] = '\0';
@@ -476,6 +478,11 @@ int8_t LeapBotConfig::loop_config_uart(int c, char result[][32])
     }
     else if (c > 0 && c < 127)
     {
+        if (index >= kMaxLineLength) {
+            index = 0;
+            line[0] = '\0';
+            return CONFIG_PARSE_ERROR;
+        }
         line[index] = c;
         ++index;
     }

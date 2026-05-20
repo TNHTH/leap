@@ -1,68 +1,108 @@
-# leap
+# Leap
 
-`leap` 是 Leap 小车的统一主仓库，用来把原先分散在两个仓库中的内容合并到一起，方便后续协作、评审和发布。
+`/home/gwh/leap` 是 Leap 小车项目的唯一仓库根，当前主线围绕“服创 A20 消防小车”闭环方案推进，重点是把巡检发现、停车处置、安全保护和广播上报组织成一条可联调、可演示、可答辩的完整链路。
 
-## 仓库目标
+## 项目主线
 
+- A20 总体方案：`docs/project/a20-fire-inspection-project-framework-2026-04-10.md`
+- 项目概览：`docs/project/leap-project-overview.md`
+- 文档入口：`docs/README.md`
+
+## 顶层结构
+
+```text
+archives/
+docs/
+firmware/leap_1_v1.1
+materials/
+ros2_ws/src/leap1
+runtime/
+worktrees/
+```
+
+## 目录分工
+
+- `docs/`
+  - 项目说明、硬件现状、联调记录和仓库合同。
 - `firmware/leap_1_v1.1`
-  - ESP32 固件源码
-  - 以已归档、已验证过的整车固件基线为主
+  - ESP32 固件源码与板级控制逻辑。
 - `ros2_ws/src/leap1`
-  - Leap 小车 ROS 2 工作空间源码
-  - 在 `work` 分支中承接当前仍在持续演进的开发线
-- `archives/flashed-firmware`
-  - 已烧录固件归档
-  - 用于保留可追溯的历史快照
+  - ROS 2 工作空间源码、导航、工具脚本与 A20 扩展包。
+- `runtime/`
+  - 运行时占位目录；日志、地图等运行产物默认不提交。
+- `materials/`
+  - 相机、雷达、整车厂商资料与历史参数副本。
+- `archives/`
+  - 已烧录固件、旧导入快照、历史仓库副本和历史 worktree 归档。
+- `worktrees/`
+  - 仅用于未来顶层仓库的 `git worktree` 并行开发。
+- `_legacy_2026-04-11`
+  - 指向旧导入快照，仅作历史参考，不是现役入口。
 
 ## 分支约定
 
 - `main`
-  - 只存放已经确认可用、适合作为稳定基线的代码
-  - 不直接堆叠日常试验性改动
+  - 只存放已验证通过、适合作为稳定基线的内容。
 - `work`
-  - 作为当前开发分支
-  - 日常改动、调试、功能迭代默认都在这里进行
-  - 验证稳定后，再合并回 `main`
+  - 当前日常开发与联调主线。
+- `feature/*`、`fix/*`、`chore/*`
+  - 默认从最新 `origin/main` 或明确指定分支切出，完成后经评审再合并回主线。
 
-## 本地使用入口
+## 推荐阅读顺序
 
-- 主仓库路径：`/home/gwh/leap/repos/leap`
-- 便捷入口：`/home/gwh/leap/current`
-- 历史本地目录归档：`/home/gwh/leap/_legacy_2026-04-11`
+1. 先读 `docs/project/a20-fire-inspection-project-framework-2026-04-10.md`，明确比赛目标与系统闭环。
+2. 再读 `docs/README.md`，找到当前项目、硬件与运维入口。
+3. 若需快速判断现状，读 `docs/project/leap-project-overview.md`。
+4. 若涉及固件、IO、泵控、micro-ROS 或网页控制，再读 `docs/hardware/firmware-current-state-2026-04-11.md`。
+5. 若要查厂商资料，再进 `materials/cameras/`、`materials/lidar/`、`materials/robot/`。
 
-## 目录说明
+## 常用命令
 
-```text
-archives/flashed-firmware
-firmware/leap_1_v1.1
-ros2_ws/src/leap1
-```
-
-## 固件编译
+查看仓库状态：
 
 ```bash
-cd firmware/leap_1_v1.1
+git -C /home/gwh/leap status -sb
+```
+
+抽水工具：
+
+```bash
+cd /home/gwh/leap/ros2_ws/src/leap1/tools
+./run_leap1_pump.sh --backend http --host 192.168.5.7 --pulse 2.0
+```
+
+固件编译：
+
+```bash
+cd /home/gwh/leap/firmware/leap_1_v1.1
 pio run
 ```
 
-## ROS 2 编译
+ROS 2 编译：
 
 ```bash
 source /opt/ros/humble/setup.bash
-cd ros2_ws
+cd /home/gwh/leap/ros2_ws
 colcon build --packages-select xuegecar_bringup
 ```
 
-## 单入口启动
+单入口启动：
 
 ```bash
 source ~/.bashrc
 ros2 launch xuegecar_bringup leap1_stack.launch.py
 ```
 
-建图模式：
+网页控制端：
 
 ```bash
-source ~/.bashrc
-ros2 launch xuegecar_bringup leap1_stack.launch.py with_mapping:=true with_rviz:=true
+cd /home/gwh/leap/ros2_ws/src/leap1/tools
+./run_leap1_web_control.sh
+```
+
+未建图手柄联调：
+
+```bash
+cd /home/gwh/leap/ros2_ws/src/leap1/tools
+./run_leap1_manual_drive_runtime.sh
 ```

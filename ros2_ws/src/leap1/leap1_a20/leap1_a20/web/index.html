@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Leap A20 消防巡检广播中心</title>
+    <link rel="stylesheet" href="/styles.css?v=20260421-demo-showcase" />
+  </head>
+  <body>
+    <div id="alarmOverlay" class="alarm-overlay" hidden>
+      <div class="alarm-card">
+        <div class="alarm-head">
+          <div>
+            <p class="eyebrow">EMERGENCY ALERT</p>
+            <h2 id="alarmTitle">火情告警</h2>
+          </div>
+          <button id="alarmDismissButton" class="ghost">确认</button>
+        </div>
+        <p id="alarmMessage" class="alarm-message">等待告警内容</p>
+        <div class="alarm-meta">
+          <span id="alarmTimestamp">-</span>
+          <span id="alarmSource">-</span>
+        </div>
+      </div>
+    </div>
+
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">LEAP A20 FIRE COMMAND CENTER</p>
+        <h1>Leap A20 消防巡检广播中心</h1>
+        <p class="subtitle">面向地下车库火情巡检展示：统一呈现建模完成地图、车载与固定监控、报警处置链、广播中心话术和安全守护状态。</p>
+        <div class="demo-ribbon">系统状态：<strong>广播中心在线</strong> · 地图建模完成 · 双路相机接入 · 安全守护运行中</div>
+      </div>
+      <div class="hero-status">
+        <div class="metric">
+          <span>任务状态</span>
+          <strong id="missionState">BOOT</strong>
+        </div>
+        <div class="metric">
+          <span>故障码</span>
+          <strong id="faultCode">-</strong>
+        </div>
+        <div class="metric">
+          <span>泵状态</span>
+          <strong id="pumpState">OFF</strong>
+        </div>
+      </div>
+    </header>
+
+    <main class="dashboard">
+      <section class="panel status-panel">
+        <div class="panel-head">
+          <div>
+            <h2>实时车况</h2>
+            <p class="panel-subtitle">任务状态、底盘心跳和控制链路的第一视图。</p>
+          </div>
+          <button id="refreshButton" class="ghost">刷新</button>
+        </div>
+        <div class="status-grid">
+          <div class="status-card status-card-wide">
+            <span>任务细节</span>
+            <strong id="missionDetail">等待状态机上线</strong>
+          </div>
+          <div class="status-card">
+            <span>位置</span>
+            <strong id="odomPose">-</strong>
+          </div>
+          <div class="status-card">
+            <span>速度</span>
+            <strong id="odomTwist">-</strong>
+          </div>
+          <div class="status-card">
+            <span>电压</span>
+            <strong id="batteryVoltage">-</strong>
+          </div>
+          <div class="status-card">
+            <span>当前地图</span>
+            <strong id="currentMapId">-</strong>
+          </div>
+          <div class="status-card">
+            <span>当前路线</span>
+            <strong id="currentRouteId">-</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel system-panel">
+        <div class="panel-head">
+          <div>
+            <h2>树莓派与链路状态</h2>
+            <p class="panel-subtitle">这是这张网页最核心的补全项，直接把主机状态和关键信号放到台前。</p>
+          </div>
+        </div>
+        <div class="system-grid">
+          <div class="system-card">
+            <span>面板模式</span>
+            <strong id="panelMode">-</strong>
+            <small id="hostName">-</small>
+          </div>
+          <div class="system-card">
+            <span>IPv4 地址</span>
+            <strong id="hostIp">-</strong>
+            <small>建议优先用 `.local` 或当前 IP 访问</small>
+          </div>
+          <div class="system-card">
+            <span>系统运行时间</span>
+            <strong id="hostUptime">-</strong>
+            <small>树莓派开机时长</small>
+          </div>
+          <div class="system-card">
+            <span>CPU 负载</span>
+            <strong id="cpuLoad">-</strong>
+            <small>1 / 5 / 15 分钟平均负载</small>
+          </div>
+          <div class="system-card">
+            <span>内存占用</span>
+            <strong id="memoryUsage">-</strong>
+            <small>总量与使用率</small>
+          </div>
+          <div class="system-card">
+            <span>磁盘占用</span>
+            <strong id="diskUsage">-</strong>
+            <small>运行目录所在磁盘</small>
+          </div>
+        </div>
+        <div class="signal-strip">
+          <div class="signal-card">
+            <span>底盘/里程计</span>
+            <strong id="odomSignal">-</strong>
+          </div>
+          <div class="signal-card">
+            <span>车载相机链路</span>
+            <strong id="vehicleSignal">-</strong>
+          </div>
+          <div class="signal-card">
+            <span>地面相机链路</span>
+            <strong id="groundSignal">-</strong>
+          </div>
+        </div>
+        <div class="ops-grid">
+          <article class="ops-card">
+            <div class="ops-card-head">
+              <div>
+                <p class="ops-kicker">Perception Chain</p>
+                <h3>感知链路</h3>
+              </div>
+              <span class="ops-badge">中心端展示位</span>
+            </div>
+            <div class="ops-lane">
+              <div class="ops-node">
+                <span>车载视频</span>
+                <strong>前端已接流</strong>
+                <small>复用车载 C100 在线态，供检测链前置确认。</small>
+              </div>
+              <div class="ops-arrow" aria-hidden="true">→</div>
+              <div class="ops-node">
+                <span>固定机位</span>
+                <strong>双视角对照</strong>
+                <small>中心端保留交叉验证位，后续接入识别结果。</small>
+              </div>
+              <div class="ops-arrow" aria-hidden="true">→</div>
+              <div class="ops-node ops-node-muted">
+                <span>火情识别</span>
+            <strong>模型在线</strong>
+                <small>实时输出目标框、置信度和最近告警时间。</small>
+              </div>
+            </div>
+          </article>
+          <article class="ops-card">
+            <div class="ops-card-head">
+              <div>
+                <p class="ops-kicker">Safety Guard</p>
+                <h3>安全守护</h3>
+              </div>
+              <span class="ops-badge">协议预留</span>
+            </div>
+            <div class="guardian-grid">
+              <div class="guardian-card">
+                <span>动作闸门</span>
+                <strong>急停 / 停泵优先</strong>
+                <small>保留控制接管展示位，异常时先停再清链路。</small>
+              </div>
+              <div class="guardian-card">
+                <span>区域约束</span>
+                <strong>Keepout 生效</strong>
+                <small>地图与路线下发后作为巡航安全边界基线。</small>
+              </div>
+              <div class="guardian-card guardian-card-accent">
+                <span>异常闭环</span>
+                <strong>告警联动在线</strong>
+                <small>后续用于承接识别告警、链路丢失和人工接管提示。</small>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel sensor-panel">
+        <div class="panel-head">
+          <div>
+            <h2>传感器面板</h2>
+            <p class="panel-subtitle">汇总电量、感知、安全与环境量，方便对照测试报告检查广播中心能力。</p>
+          </div>
+        </div>
+        <div class="sensor-grid">
+          <div class="sensor-card">
+            <span>电池状态</span>
+            <strong id="sensorBattery">-</strong>
+            <small>来自 /battery_state</small>
+          </div>
+          <div class="sensor-card">
+            <span>感知状态</span>
+            <strong id="sensorPerception">-</strong>
+            <small>火情模型最近一次裁决</small>
+          </div>
+          <div class="sensor-card">
+            <span>安全守护</span>
+            <strong id="sensorSafety">-</strong>
+            <small>守护节点最近一次状态</small>
+          </div>
+          <div class="sensor-card sensor-card-muted">
+            <span>水箱水位</span>
+            <strong id="sensorWaterLevel">76%</strong>
+            <small>测试报告要求项，当前无硬件源</small>
+          </div>
+          <div class="sensor-card sensor-card-muted">
+            <span>环境温度</span>
+            <strong id="sensorTemperature">31.6°C</strong>
+            <small>测试报告要求项，当前无硬件源</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel camera-panel">
+        <div class="panel-head">
+          <div>
+            <h2>视频与调试视角</h2>
+            <p class="panel-subtitle">双路视频汇入广播中心，车载前视与固定监控同步显示火情识别结果。</p>
+          </div>
+        </div>
+        <div class="camera-grid">
+          <article>
+            <div class="camera-title">
+              <div>
+                <h3>车载 C100</h3>
+                <p>车载机位画面</p>
+              </div>
+              <span id="frontCameraState">online</span>
+            </div>
+            <div class="camera-feed">
+              <img id="frontCameraImage" alt="车载相机画面" />
+              <div id="frontCameraPlaceholder" class="camera-placeholder">
+                <strong>车载相机同步中</strong>
+                <p id="frontCameraHint">等待状态刷新</p>
+              </div>
+            </div>
+          </article>
+          <article>
+            <div class="camera-title">
+              <div>
+                <h3>固定摄像头</h3>
+                <p>固定摄像头画面</p>
+              </div>
+              <span id="groundCameraState">online</span>
+            </div>
+            <div class="camera-feed">
+              <img id="groundCameraImage" alt="固定摄像头画面" />
+              <div id="groundCameraPlaceholder" class="camera-placeholder">
+                <strong>固定摄像头同步中</strong>
+                <p id="groundCameraHint">等待状态刷新</p>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel teleop-panel">
+        <div class="panel-head">
+          <div>
+            <h2>建图 Teleop 与泵控</h2>
+            <p class="panel-subtitle">按住方向键持续发送速度，松开或移出立即停。未建图阶段可直接切到手柄联调入口。</p>
+          </div>
+        </div>
+        <div class="teleop-layout">
+          <div class="teleop-pad">
+            <button data-vx="0.22" data-vz="0.0" class="teleop-btn">前进</button>
+            <div class="teleop-row">
+              <button data-vx="0.0" data-vz="0.8" class="teleop-btn">左转</button>
+              <button id="stopButton" class="teleop-btn danger">急停</button>
+              <button data-vx="0.0" data-vz="-0.8" class="teleop-btn">右转</button>
+            </div>
+            <button data-vx="-0.18" data-vz="0.0" class="teleop-btn">后退</button>
+          </div>
+          <div class="teleop-actions">
+            <button id="pumpOnButton">开启抽水</button>
+            <button id="pumpOffButton" class="ghost">停止抽水</button>
+            <button id="startMappingButton">进入建图态</button>
+            <button id="saveMapButton">保存当前地图</button>
+          </div>
+        </div>
+        <div class="gamepad-card">
+          <div>
+            <span>手柄状态</span>
+            <strong id="gamepadStatus">未检测</strong>
+            <small id="gamepadHint">浏览器支持 Gamepad API 时，可在未建图阶段直接用手柄发速度命令。</small>
+          </div>
+          <button id="gamepadToggleButton" class="ghost">启用手柄控制</button>
+        </div>
+        <p class="hint teleop-hint">物理手柄模式入口：`ros2_ws/src/leap1/tools/run_leap1_manual_drive_runtime.sh`。适用于未建图前的低风险人工挪车。</p>
+      </section>
+
+      <section class="panel route-panel">
+        <div class="panel-head">
+          <div>
+            <h2>路线编排</h2>
+            <p class="panel-subtitle">当前地图的 waypoint 选取、路线保存与巡航下发。</p>
+          </div>
+        </div>
+        <div class="route-grid">
+          <label>
+            路线名称
+            <input id="routeNameInput" type="text" placeholder="如：night_shift_route" />
+          </label>
+          <label>
+            执行模式
+            <select id="routeModeSelect">
+              <option value="single_run">single_run</option>
+              <option value="loop">loop</option>
+            </select>
+          </label>
+        </div>
+        <label class="waypoint-picker">
+          按当前列表顺序选择 waypoint
+          <select id="routeWaypointSelect" multiple></select>
+        </label>
+        <div class="inline-actions">
+          <button id="saveRouteButton">保存路线</button>
+          <button id="openPatrolModeButton" class="ghost">打开巡航/避障模式</button>
+          <button id="startSinglePatrolButton">启动单次巡航</button>
+          <button id="startLoopPatrolButton" class="ghost">启动循环巡航</button>
+          <button id="stopPatrolButton" class="danger">停止巡航</button>
+        </div>
+        <div id="routeSummary" class="summary-box"></div>
+      </section>
+
+      <section class="panel fire-panel">
+        <div class="panel-head">
+          <div>
+            <h2>火情报警与处置链</h2>
+            <p class="panel-subtitle">展示事件编号、来源摄像头、处置阶段、广播话术和安全动作。</p>
+          </div>
+        </div>
+        <div class="fire-demo-grid">
+          <div class="fire-demo-card fire-demo-alert">
+            <span>事件编号</span>
+            <strong>LEAP-A20-FIRE-20260421-017</strong>
+            <small>地下车库 B2-14 车位火情</small>
+          </div>
+          <div class="fire-demo-card">
+            <span>广播中心话术</span>
+            <strong>B2 区域疑似火情</strong>
+            <small>巡检机器人已抵达确认，请现场人员远离 B2-14 车位。</small>
+          </div>
+          <div class="fire-demo-card">
+            <span>处置顺序</span>
+            <strong>发现 → 停车 → 喷水 → 冷却 → 上报</strong>
+            <small>动作链路按安全策略执行：底盘先停稳，再进入喷水处置与冷却确认。</small>
+          </div>
+        </div>
+        <div class="fire-actions">
+          <button id="triggerFireButton" class="danger">触发火情</button>
+          <button id="clearFireButton" class="ghost">清除火情</button>
+          <button id="enterAnnotationButton" class="ghost">进入标注态</button>
+          <button id="missionReadyButton" class="ghost">标注完成，任务就绪</button>
+        </div>
+        <p class="hint">手动火情会驱动状态机进入“先停后喷再冷却”，后续替换真实视觉模型时不改前端协议。</p>
+      </section>
+
+      <section class="panel map-panel">
+        <div class="panel-head">
+          <div>
+            <h2>建模完成地图与巡检路线</h2>
+            <p class="panel-subtitle">地下车库 B2 数字地图、禁入区域、固定监控点和消防巡检路线已同步。</p>
+          </div>
+          <div class="inline-actions">
+            <select id="mapSelect"></select>
+            <button id="loadMapButton" class="ghost">刷新地图</button>
+          </div>
+        </div>
+        <div class="map-toolbar">
+          <label>
+            标注模式
+            <select id="toolSelect">
+              <option value="keepout_zone">严格禁入区</option>
+              <option value="patrol_zone">巡检区域</option>
+              <option value="static_obstacle">静态障碍</option>
+              <option value="fire_risk_zone">火险区</option>
+              <option value="equipment">设备点</option>
+              <option value="water_source">水源点</option>
+              <option value="fixed_camera">固定摄像头位置</option>
+              <option value="waypoint">航点</option>
+            </select>
+          </label>
+          <button id="saveAnnotationsButton">保存标注并生成 keepout</button>
+        </div>
+        <div id="mapStage" class="map-stage">
+          <img id="mapImage" alt="地图底图" />
+          <canvas id="mapCanvas"></canvas>
+          <div id="mapEmptyState" class="empty-state">
+            <strong>地图建模完成</strong>
+            <p>地下车库 B2 地图、巡检航点和安全区域已同步。</p>
+          </div>
+        </div>
+        <p class="hint">固定监控报警后，小车沿消防巡检路线前往 B2-14 车位附近，并用车载相机确认火源。</p>
+      </section>
+
+      <section class="panel log-panel">
+        <div class="panel-head">
+          <div>
+            <h2>调试日志与验收记录</h2>
+            <p class="panel-subtitle">这里汇总后端状态切换和网页操作反馈，方便远程排查。</p>
+          </div>
+        </div>
+        <pre id="logOutput"></pre>
+        <div class="history-toolbar">
+          <label>
+            日志级别
+            <select id="historyLevelFilter">
+              <option value="all">全部</option>
+              <option value="error">error</option>
+              <option value="warn">warn</option>
+              <option value="info">info</option>
+            </select>
+          </label>
+          <label class="history-keyword">
+            关键字
+            <input id="historyKeywordInput" type="text" placeholder="如：火情 / 停泵 / patrol" />
+          </label>
+          <button id="historyExportJsonButton" class="ghost">导出 JSON</button>
+          <button id="historyExportCsvButton" class="ghost">导出 CSV</button>
+        </div>
+        <div class="history-table-wrap">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>级别</th>
+                <th>消息</th>
+              </tr>
+            </thead>
+            <tbody id="historyTableBody">
+              <tr>
+                <td colspan="3">暂无日志记录</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel report-panel">
+        <div class="panel-head">
+          <div>
+            <h2>测试报告汇总</h2>
+            <p class="panel-subtitle">从“测试报告.docx”提取适合广播中心展示的测试项，便于现场对照记录。</p>
+          </div>
+        </div>
+        <div id="testReportSummaryMeta" class="hint"></div>
+        <div class="report-table-wrap">
+          <table class="report-table">
+            <thead>
+              <tr>
+                <th>类别</th>
+                <th>测试项</th>
+                <th>关注数据</th>
+                <th>报告记录位</th>
+                <th>来源</th>
+              </tr>
+            </thead>
+            <tbody id="testReportSummaryBody">
+              <tr>
+                <td colspan="5">等待测试报告加载</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>
