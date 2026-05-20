@@ -41,6 +41,19 @@ const char *motor_startup_boost_ms_default(uint8_t id)
 {
     return id == 0 ? CONFIG_DEFAULT_MOTOR0_STARTUP_BOOST_MS : CONFIG_DEFAULT_MOTOR1_STARTUP_BOOST_MS;
 }
+
+bool is_sensitive_key(const String& key)
+{
+    return key == CONFIG_NAME_WIFI_STA_PSWK_NAME || key == "wifi_ap_pswd";
+}
+
+String masked_config_value(const String& key, const String& value)
+{
+    if (!is_sensitive_key(key)) {
+        return value;
+    }
+    return value.length() == 0 ? "" : "******";
+}
 } // namespace
 
 void LeapBotConfig::init(String namespace_)
@@ -111,10 +124,11 @@ uint32_t LeapBotConfig::is_first_startup()
 
 bool LeapBotConfig::config(String key, String value)
 {
-    log_debug("config", "save config key=%s,value=%s", key.c_str(), value.c_str());
     if (key == "pump_active_level") {
         key = CONFIG_NAME_PUMP_ACTIVE_LEVEL;
     }
+    const String log_value = masked_config_value(key, value);
+    log_debug("config", "save config key=%s,value=%s", key.c_str(), log_value.c_str());
     return preferences.putString(key.c_str(), value.c_str());
 }
 
@@ -131,13 +145,13 @@ String LeapBotConfig::config_str()
     config.concat("\n$wifi_ssid=");
     config.concat(wifi_sta_ssid());
     config.concat("\n$wifi_pswd=");
-    config.concat(wifi_sta_pswd());
+    config.concat(masked_config_value(CONFIG_NAME_WIFI_STA_PSWK_NAME, wifi_sta_pswd()));
 
     config.concat("\n$wifi_ap_ssid=");
     config.concat(wifi_ap_ssid());
 
     config.concat("\n$wifi_ap_pswd=");
-    config.concat(wifi_ap_pswd());
+    config.concat(masked_config_value("wifi_ap_pswd", wifi_ap_pswd()));
 
     config.concat("\n$microros_mode=");
     config.concat(microros_transport_mode());
@@ -403,22 +417,34 @@ uint32_t LeapBotConfig::pump_timeout_ms()
  */
 int8_t LeapBotConfig::split_str(const char *line, char result[][32])
 {
+    constexpr uint16_t kMaxFields = 2;
+    constexpr uint16_t kMaxTokenLength = 31;
+
     if (line[0] != '$')
         return CONFIG_PARSE_ERROR;
-    uint16_t index = 0;
     uint16_t count = 0;
     uint16_t temp_index = 0;
-    for (index = 1; line[index] != '\0'; index++)
+    for (uint16_t index = 1; line[index] != '\0'; index++)
     {
         if (line[index] == '=')
         {
-            result[count++][temp_index++] = '\0';
+            if (count + 1 >= kMaxFields || temp_index == 0) {
+                return CONFIG_PARSE_ERROR;
+            }
+            result[count][temp_index] = '\0';
+            count++;
             temp_index = 0;
             continue;
         }
+        if (temp_index >= kMaxTokenLength) {
+            return CONFIG_PARSE_ERROR;
+        }
         result[count][temp_index++] = line[index];
     }
-    result[count][temp_index++] = '\0';
+    if (temp_index == 0) {
+        return CONFIG_PARSE_ERROR;
+    }
+    result[count][temp_index] = '\0';
 
     if (count != 1)
     {
@@ -438,6 +464,12 @@ int8_t LeapBotConfig::loop_config_uart(int c, char result[][32])
 {
     static char line[512];
     static int index = 0;
+    constexpr int kMaxLineLength = sizeof(line) - 1;
+
+    if (c == '\r') {
+        return CONFIG_PARSE_NODATA;
+    }
+
     if (c == '\n')
     {
         line[index] = '\0';
@@ -446,6 +478,11 @@ int8_t LeapBotConfig::loop_config_uart(int c, char result[][32])
     }
     else if (c > 0 && c < 127)
     {
+        if (index >= kMaxLineLength) {
+            index = 0;
+            line[0] = '\0';
+            return CONFIG_PARSE_ERROR;
+        }
         line[index] = c;
         ++index;
     }

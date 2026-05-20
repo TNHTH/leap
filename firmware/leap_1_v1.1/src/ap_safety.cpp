@@ -18,7 +18,7 @@ enum MotionCommandSource
     MOTION_SOURCE_WEB = 2,
 };
 
-constexpr uint32_t CMD_VEL_TIMEOUT_MS = 800;
+constexpr uint32_t CMD_VEL_TIMEOUT_MS = 500;
 
 states agent_state = WAITING_AGENT;
 uint8_t pump_gpio_in_use = 255;
