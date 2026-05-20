@@ -19,9 +19,9 @@ from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
-DOCKER_IMAGE = "registry.cn-hangzhou.aliyuncs.com/fishros/micro-ros-agent:humble"
-MICRO_ROS_PORT = "8888"
-LIDAR_UDP_PORT = "8889"
+DEFAULT_AGENT_IMAGE = "registry.cn-hangzhou.aliyuncs.com/fishros/micro-ros-agent:humble"
+DEFAULT_MICRO_ROS_PORT = "8888"
+DEFAULT_LIDAR_UDP_PORT = "8889"
 DEFAULT_LIDAR_LINK = "/tmp/lidar"
 
 
@@ -109,6 +109,95 @@ def _optional_package_share(package_name: str) -> str:
         return ""
 
 
+def _real_agent_condition(
+    agent_transport,
+    agent_backend,
+    start_agent,
+    transport: str,
+    backend_name: str,
+):
+    return IfCondition(
+        PythonExpression(
+            [
+                "'",
+                LaunchConfiguration("backend"),
+                "' == 'real' and '",
+                start_agent,
+                "' == 'true' and '",
+                agent_transport,
+                "' == '",
+                transport,
+                "' and '",
+                agent_backend,
+                "' == '",
+                backend_name,
+                "'",
+            ]
+        )
+    )
+
+
+def _real_process_condition(enabled_config):
+    return IfCondition(
+        PythonExpression(
+            [
+                "'",
+                LaunchConfiguration("backend"),
+                "' == 'real' and '",
+                enabled_config,
+                "' == 'true'",
+            ]
+        )
+    )
+
+
+def _docker_agent_shell(agent_image, agent_args):
+    return [
+        "sg docker -c 'docker run --rm -v /dev:/dev -v /dev/shm:/dev/shm "
+        "--privileged --net=host ",
+        agent_image,
+        " ",
+        *agent_args,
+        "'",
+    ]
+
+
+def _native_agent_shell(agent_args):
+    return ["ros2 run micro_ros_agent micro_ros_agent ", *agent_args]
+
+
+def _agent_process(name, condition, shell_parts):
+    return ExecuteProcess(
+        condition=condition,
+        cmd=["bash", "-lc", shell_parts],
+        output="screen",
+    )
+
+
+def _agent_shutdown_handler(target_action, label, shutdown_on_agent_exit):
+    return RegisterEventHandler(
+        OnProcessExit(
+            target_action=target_action,
+            on_exit=[
+                LogInfo(
+                    condition=IfCondition(shutdown_on_agent_exit),
+                    msg=f"{label} 已退出，按参数要求关闭整套 Launch。",
+                ),
+                EmitEvent(
+                    condition=IfCondition(shutdown_on_agent_exit),
+                    event=Shutdown(reason=f"{label} exited"),
+                ),
+                LogInfo(
+                    condition=IfCondition(
+                        PythonExpression(["'", shutdown_on_agent_exit, "' != 'true'"])
+                    ),
+                    msg=f"{label} 已退出；当前不关闭整套 Launch。",
+                ),
+            ],
+        )
+    )
+
+
 def _dynamic_navigation_actions(context):
     backend = LaunchConfiguration("backend").perform(context)
     with_mapping = LaunchConfiguration("with_mapping").perform(context) == "true"
@@ -133,7 +222,7 @@ def _dynamic_navigation_actions(context):
     xuegecar_navigation_dir = get_package_share_directory("xuegecar_navigation2")
     ydlidar_dir = get_package_share_directory("ydlidar_ros2_driver")
     slam_gmapping_dir = get_package_share_directory("slam_gmapping")
-    lidar_link = os.environ.get("LEAP1_LIDAR_LINK", DEFAULT_LIDAR_LINK)
+    lidar_link = LaunchConfiguration("lidar_link").perform(context)
 
     lidar_actions = []
     if backend == "real":
@@ -228,13 +317,23 @@ def _dynamic_navigation_actions(context):
 
 def generate_launch_description():
     backend = LaunchConfiguration("backend")
+    start_agent = LaunchConfiguration("start_agent")
+    start_lidar_bridge = LaunchConfiguration("start_lidar_bridge")
     agent_transport = LaunchConfiguration("agent_transport")
+    agent_backend = LaunchConfiguration("agent_backend")
+    agent_image = LaunchConfiguration("agent_image")
     agent_serial_dev = LaunchConfiguration("agent_serial_dev")
     agent_serial_baud = LaunchConfiguration("agent_serial_baud")
+    micro_ros_port = LaunchConfiguration("micro_ros_port")
+    lidar_udp_port = LaunchConfiguration("lidar_udp_port")
+    lidar_link = LaunchConfiguration("lidar_link")
+    shutdown_on_agent_exit = LaunchConfiguration("shutdown_on_agent_exit")
+    shutdown_on_lidar_bridge_exit = LaunchConfiguration("shutdown_on_lidar_bridge_exit")
     with_rviz = LaunchConfiguration("with_rviz")
     with_vehicle_web_teleop = LaunchConfiguration("with_vehicle_web_teleop")
     with_a20_stack = LaunchConfiguration("with_a20_stack")
     with_vehicle_camera = LaunchConfiguration("with_vehicle_camera")
+    with_flame_detector = LaunchConfiguration("with_flame_detector")
     with_ground_camera = LaunchConfiguration("with_ground_camera")
     with_manual_fire_tools = LaunchConfiguration("with_manual_fire_tools")
     with_aux_detection_placeholders = LaunchConfiguration("with_aux_detection_placeholders")
@@ -267,58 +366,48 @@ def generate_launch_description():
         os.environ.get("LEAP1_MAP_YAML", ""),
     )
 
-    udp_agent_process = ExecuteProcess(
-        condition=IfCondition(
-            PythonExpression(["'", backend, "' == 'real' and '", agent_transport, "' == 'udp'"])
-        ),
-        cmd=[
-            "bash",
-            "-lc",
-            (
-                "sg docker -c 'docker run --rm -v /dev:/dev -v /dev/shm:/dev/shm "
-                "--privileged --net=host "
-                + DOCKER_IMAGE
-                + " udp4 --port "
-                + MICRO_ROS_PORT
-                + " -v6'"
-            ),
-        ],
-        output="screen",
+    udp_agent_args = ["udp4 --port ", micro_ros_port, " -v6"]
+    serial_agent_args = [
+        "serial --dev ",
+        agent_serial_dev,
+        " -b ",
+        agent_serial_baud,
+        " -v6",
+    ]
+
+    udp_agent_docker_process = _agent_process(
+        "udp_micro_ros_agent_docker",
+        _real_agent_condition(agent_transport, agent_backend, start_agent, "udp", "docker"),
+        _docker_agent_shell(agent_image, udp_agent_args),
+    )
+    serial_agent_docker_process = _agent_process(
+        "serial_micro_ros_agent_docker",
+        _real_agent_condition(agent_transport, agent_backend, start_agent, "serial", "docker"),
+        _docker_agent_shell(agent_image, serial_agent_args),
+    )
+    udp_agent_native_process = _agent_process(
+        "udp_micro_ros_agent_native",
+        _real_agent_condition(agent_transport, agent_backend, start_agent, "udp", "native"),
+        _native_agent_shell(udp_agent_args),
+    )
+    serial_agent_native_process = _agent_process(
+        "serial_micro_ros_agent_native",
+        _real_agent_condition(agent_transport, agent_backend, start_agent, "serial", "native"),
+        _native_agent_shell(serial_agent_args),
     )
 
-    serial_agent_process = ExecuteProcess(
-        condition=IfCondition(
-            PythonExpression(["'", backend, "' == 'real' and '", agent_transport, "' == 'serial'"])
-        ),
+    lidar_bridge_process = ExecuteProcess(
+        condition=_real_process_condition(start_lidar_bridge),
         cmd=[
             "bash",
             "-lc",
             [
-                (
-                    "sg docker -c 'docker run --rm -v /dev:/dev -v /dev/shm:/dev/shm "
-                    "--privileged --net=host "
-                ),
-                DOCKER_IMAGE,
-                " serial --dev ",
-                agent_serial_dev,
-                " -b ",
-                agent_serial_baud,
-                " -v6'",
+                "socat -u UDP4-RECV:",
+                lidar_udp_port,
+                ",reuseaddr PTY,link=",
+                lidar_link,
+                ",raw,echo=0,mode=666",
             ],
-        ],
-        output="screen",
-    )
-
-    lidar_bridge_process = ExecuteProcess(
-        condition=IfCondition(PythonExpression(["'", backend, "' == 'real'"])),
-        cmd=[
-            "bash",
-            "-lc",
-            "socat -u UDP4-RECV:"
-            + LIDAR_UDP_PORT
-            + ",reuseaddr PTY,link="
-            + os.environ.get("LEAP1_LIDAR_LINK", DEFAULT_LIDAR_LINK)
-            + ",raw,echo=0,mode=666",
         ],
         output="screen",
     )
@@ -337,10 +426,10 @@ def generate_launch_description():
     sim_tf_broadcaster = Node(
         package="xuegecar_bringup",
         executable="xuegecar_bringup",
-        name="xuegecar_bringup",
+        name="leap1_odom_tf_broadcaster",
         output="screen",
         condition=IfCondition(PythonExpression(["'", backend, "' == 'sim'"])),
-        parameters=[{"use_sim_time": True}],
+        parameters=[{"use_sim_time": True, "publish_tf": True}],
     )
 
     gazebo_launch = IncludeLaunchDescription(
@@ -363,6 +452,7 @@ def generate_launch_description():
         launch_arguments={
             "runtime_root": a20_runtime_root,
             "with_vehicle_camera": with_vehicle_camera,
+            "with_flame_detector": with_flame_detector,
             "with_manual_fire_tools": with_manual_fire_tools,
             "with_aux_detection_placeholders": with_aux_detection_placeholders,
             "vehicle_camera_device": vehicle_camera_device,
@@ -397,30 +487,44 @@ def generate_launch_description():
     )
 
     critical_shutdown_actions = [
-        RegisterEventHandler(
-            OnProcessExit(
-                target_action=udp_agent_process,
-                on_exit=[
-                    LogInfo(msg="micro-ROS Agent 已退出，正在关闭整套 Launch。"),
-                    EmitEvent(event=Shutdown(reason="micro-ROS Agent exited")),
-                ],
-            )
+        _agent_shutdown_handler(
+            udp_agent_docker_process,
+            "docker UDP micro-ROS Agent",
+            shutdown_on_agent_exit,
         ),
-        RegisterEventHandler(
-            OnProcessExit(
-                target_action=serial_agent_process,
-                on_exit=[
-                    LogInfo(msg="serial micro-ROS Agent 已退出，正在关闭整套 Launch。"),
-                    EmitEvent(event=Shutdown(reason="serial micro-ROS Agent exited")),
-                ],
-            )
+        _agent_shutdown_handler(
+            serial_agent_docker_process,
+            "docker serial micro-ROS Agent",
+            shutdown_on_agent_exit,
+        ),
+        _agent_shutdown_handler(
+            udp_agent_native_process,
+            "native UDP micro-ROS Agent",
+            shutdown_on_agent_exit,
+        ),
+        _agent_shutdown_handler(
+            serial_agent_native_process,
+            "native serial micro-ROS Agent",
+            shutdown_on_agent_exit,
         ),
         RegisterEventHandler(
             OnProcessExit(
                 target_action=lidar_bridge_process,
                 on_exit=[
-                    LogInfo(msg="雷达桥接已退出，正在关闭整套 Launch。"),
-                    EmitEvent(event=Shutdown(reason="lidar bridge exited")),
+                    LogInfo(
+                        condition=IfCondition(shutdown_on_lidar_bridge_exit),
+                        msg="雷达桥接已退出，按参数要求关闭整套 Launch。",
+                    ),
+                    EmitEvent(
+                        condition=IfCondition(shutdown_on_lidar_bridge_exit),
+                        event=Shutdown(reason="lidar bridge exited"),
+                    ),
+                    LogInfo(
+                        condition=IfCondition(
+                            PythonExpression(["'", shutdown_on_lidar_bridge_exit, "' != 'true'"])
+                        ),
+                        msg="雷达桥接已退出；当前不关闭整套 Launch。",
+                    ),
                 ],
             )
         ),
@@ -430,9 +534,29 @@ def generate_launch_description():
         [
             DeclareLaunchArgument("backend", default_value="real", description="sim 或 real"),
             DeclareLaunchArgument(
+                "start_agent",
+                default_value="true",
+                description="是否由本 Launch 启动 micro-ROS Agent",
+            ),
+            DeclareLaunchArgument(
+                "start_lidar_bridge",
+                default_value="true",
+                description="是否由本 Launch 启动 UDP 到 PTY 的雷达桥接",
+            ),
+            DeclareLaunchArgument(
                 "agent_transport",
                 default_value="udp",
                 description="udp、serial、external_serial 或 none",
+            ),
+            DeclareLaunchArgument(
+                "agent_backend",
+                default_value="docker",
+                description="micro-ROS Agent 启动后端: docker 或 native",
+            ),
+            DeclareLaunchArgument(
+                "agent_image",
+                default_value=DEFAULT_AGENT_IMAGE,
+                description="docker 后端使用的 micro-ROS Agent 镜像",
             ),
             DeclareLaunchArgument(
                 "agent_serial_dev",
@@ -443,6 +567,31 @@ def generate_launch_description():
                 "agent_serial_baud",
                 default_value="921600",
                 description="serial micro-ROS 波特率",
+            ),
+            DeclareLaunchArgument(
+                "micro_ros_port",
+                default_value=DEFAULT_MICRO_ROS_PORT,
+                description="UDP micro-ROS Agent 监听端口",
+            ),
+            DeclareLaunchArgument(
+                "lidar_udp_port",
+                default_value=DEFAULT_LIDAR_UDP_PORT,
+                description="雷达 UDP 转发监听端口",
+            ),
+            DeclareLaunchArgument(
+                "lidar_link",
+                default_value=DEFAULT_LIDAR_LINK,
+                description="socat 生成的雷达串口链接路径",
+            ),
+            DeclareLaunchArgument(
+                "shutdown_on_agent_exit",
+                default_value="false",
+                description="micro-ROS Agent 退出时是否关闭整套 Launch",
+            ),
+            DeclareLaunchArgument(
+                "shutdown_on_lidar_bridge_exit",
+                default_value="false",
+                description="雷达桥接退出时是否关闭整套 Launch",
             ),
             DeclareLaunchArgument(
                 "with_mapping",
@@ -501,6 +650,11 @@ def generate_launch_description():
                 description="是否启动车载相机节点",
             ),
             DeclareLaunchArgument(
+                "with_flame_detector",
+                default_value="false",
+                description="是否启用内置轻量火焰检测",
+            ),
+            DeclareLaunchArgument(
                 "with_manual_fire_tools",
                 default_value="false",
                 description="是否启用手动火情工具",
@@ -552,8 +706,10 @@ def generate_launch_description():
                 default_value=default_world,
                 description="Gazebo Classic world 路径",
             ),
-            udp_agent_process,
-            serial_agent_process,
+            udp_agent_docker_process,
+            serial_agent_docker_process,
+            udp_agent_native_process,
+            serial_agent_native_process,
             lidar_bridge_process,
             gazebo_launch,
             TimerAction(period=2.0, actions=[real_bringup_launch, sim_tf_broadcaster]),

@@ -3,7 +3,7 @@ from launch.actions import DeclareLaunchArgument, EmitEvent, ExecuteProcess, Log
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
-from launch.substitutions import FindExecutable, LaunchConfiguration
+from launch.substitutions import FindExecutable, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -113,7 +113,7 @@ def generate_launch_description():
             "leap1_a20.flame_detection_node",
         ],
         output="screen",
-        condition=IfCondition(with_flame_detector),
+        condition=IfCondition(PythonExpression(["'", with_flame_detector, "' == 'true'"])),
     )
 
     vehicle_camera_node = Node(
