@@ -1,6 +1,7 @@
 # 仓库工具与临时目录
 .codex/
 .tmp/
+/worktrees/
 
 # ROS 2 / colcon
 /ros2_ws/build/
